@@ -321,3 +321,40 @@ frame.TransformCoordinates2d(
 - Android SDK at `C:\Program Files (x86)\Android\android-sdk`.
 - No emulator/device attached; no `dotnet build ... -t:Run` or deploy was
   attempted, per the task's constraints.
+
+## Adaptations in Task 6
+
+Members the Task 6 brief used that the spike had not pinned, as verified by
+compiling `src/Scanner.App` (and by reading the binding's metadata) against
+`Vapolia.Google.ARCore` 1.47.1:
+
+| Brief spelling | Binding spelling | Notes |
+|---|---|---|
+| `plane.GetType_()` | `plane.GetType()` | Java `Plane.getType()` is bound as a `GetType()` that hides `object.GetType()` and returns `Plane.Type`. Assign it to a typed local (`ArPlane.Type t = plane.GetType()!;`): `plane.GetType().Equals(...)` would also compile if it ever resolved to `System.Type`, and would then always be false. |
+| `Plane` (bare) | `using ArPlane = Google.AR.Core.Plane;` | Ambiguous (`CS0104`) with `System.Numerics.Plane` in any file that also imports `System.Numerics`. |
+| `status == ArCoreApk.InstallStatus.InstallRequested` | `status.Equals(ArCoreApk.InstallStatus.InstallRequested!)` | Same bound-Java-enum rule as `TrackingState`: no `==` overload. |
+
+Verified as the brief spelled them (no change needed): `Frame.HitTest(float, float)`
+→ `IList<HitResult>`; `HitResult.HitPose` (property); `Pose.Tx()/Ty()/Tz()`
+(methods); `Session.GetAllTrackables(Java.Lang.Class)` → **non-generic**
+`System.Collections.ICollection` (pattern-match the elements);
+`Plane.TrackingState`, `Plane.CenterPose`, `Plane.SubsumedBy` (properties);
+`Plane.Type.HorizontalUpwardFacing`; `Config.SetPlaneFindingMode(Config.PlaneFindingMode.Horizontal!)`;
+`Frame.HasDisplayGeometryChanged` (property); `Frame.Timestamp` and
+`Android.Media.Image.Timestamp` (`long` properties, nanoseconds);
+`Coordinates2d.OpenglNormalizedDeviceCoordinates`; `Camera.TextureIntrinsics`;
+`ArCoreApk.Availability.IsTransient` / `IsUnsupported` (properties).
+
+Behavioural notes found while wiring the scan screen:
+
+- **`Android.Media.Image` must be closed with `Close()`.** `using`/`Dispose()`
+  on a .NET for Android peer only releases the JNI reference; it does not
+  call Java `close()`. Unclosed ARCore images exhaust ARCore's image pool
+  (`ResourceExhaustedException`) after a few frames. `DepthFrameReader`
+  calls `Close()` then `Dispose()` in a `finally`, on every path.
+- **Depth intrinsics come from `Camera.TextureIntrinsics`.** ARCore's depth
+  images cover the GPU texture's field of view (depth pixels are addressed in
+  `TEXTURE_NORMALIZED` coordinates; Google's raw-depth sample scales
+  `getTextureIntrinsics()` to the depth size). `ImageIntrinsics` describes
+  the CPU image, which can have a different field of view (e.g. 4:3 CPU image
+  vs 16:9 texture), so scaling it to the depth size would distort the points.

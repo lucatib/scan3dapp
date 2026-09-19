@@ -66,5 +66,8 @@
 	<ItemGroup Condition="$(TargetFramework.Contains('-android'))">
 		<PackageReference Include="Vapolia.Google.ARCore" Version="1.47.1" />
 	</ItemGroup>
+	<ItemGroup>
+	  <ProjectReference Include="..\Scanner.Capture\Scanner.Capture.csproj" />
+	</ItemGroup>
 
 </Project>

@@ -13,7 +13,18 @@ public static class MauiProgram
 			{
 				fonts.AddFont("OpenSans-Regular.ttf", "OpenSansRegular");
 				fonts.AddFont("OpenSans-Semibold.ttf", "OpenSansSemibold");
+			})
+			.ConfigureMauiHandlers(handlers =>
+			{
+#if ANDROID
+				handlers.AddHandler<Scanner.App.Controls.ArScanView, Scanner.App.Droid.Handlers.ArScanViewHandler>();
+#elif WINDOWS
+				handlers.AddHandler<Scanner.App.Controls.ArScanView, Scanner.App.WinUI.Handlers.ArScanViewHandler>();
+#endif
 			});
+
+		builder.Services.AddSingleton<Scanner.App.Services.SessionStore>();
+		builder.Services.AddTransient<Scanner.App.Pages.ScanPage>();
 
 #if DEBUG
 		builder.Logging.AddDebug();
