@@ -10,3 +10,10 @@ public sealed class ArScanViewHandler() : ViewHandler<ArScanView, TextBlock>(Vie
     protected override TextBlock CreatePlatformView() =>
         new() { Text = "AR scanning is available on Android only.", Margin = new Microsoft.UI.Xaml.Thickness(16) };
 }
+
+/// <inheritdoc cref="ArScanViewHandler"/>
+public sealed class PointCloudViewHandler() : ViewHandler<PointCloudView, TextBlock>(ViewMapper)
+{
+    protected override TextBlock CreatePlatformView() =>
+        new() { Text = "The 3D preview is available on Android only for now.", Margin = new Microsoft.UI.Xaml.Thickness(16) };
+}

@@ -143,9 +143,8 @@ public sealed class ScanPage : ContentPage
         try
         {
             var result = await Task.Run(scan.Complete);
-            _status.Text = $"Scan complete · {result.PiecePoints.Length:N0} points";
-            await DisplayAlertAsync("Scan complete",
-                $"{result.PiecePoints.Length:N0} points{(result.Isolated ? " (piece isolated from the table)" : "")}.", "OK");
+            _status.Text = result.Isolated ? "Piece isolated from the table." : "Could not isolate the piece; showing all points.";
+            await Shell.Current.GoToAsync($"preview?id={_sessionId}");
         }
         catch (Exception ex)
         {
