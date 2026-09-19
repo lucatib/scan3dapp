@@ -6,6 +6,7 @@
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Scanner.Brep.Tests/Scanner.Brep.Tests.csproj" />
+    <Project Path="tests/Scanner.Capture.Tests/Scanner.Capture.Tests.csproj" />
     <Project Path="tests/Scanner.Core.Tests/Scanner.Core.Tests.csproj" />
   </Folder>
 </Solution>
