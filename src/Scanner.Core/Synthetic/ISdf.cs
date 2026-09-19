@@ -2,7 +2,7 @@ using System.Numerics;
 
 namespace Scanner.Core.Synthetic;
 
-/// <summary>Funzione di distanza con segno: negativa dentro l'oggetto.</summary>
+/// <summary>Signed distance function: negative inside the object.</summary>
 public interface ISdf
 {
     float Distance(Vector3 p);
@@ -24,7 +24,7 @@ public sealed record BoxSdf(Vector3 Center, Vector3 HalfSize) : ISdf
     }
 }
 
-/// <summary>Cilindro forato con asse Z centrato in <see cref="Center"/>.</summary>
+/// <summary>Drilled cylinder with Z axis centered at <see cref="Center"/>.</summary>
 public sealed record TubeSdf(Vector3 Center, float OuterRadius, float InnerRadius, float Height) : ISdf
 {
     public float Distance(Vector3 p)

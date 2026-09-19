@@ -1,180 +1,180 @@
-# Scan3D — Specifica di design
+# Scan3D — Design Specification
 
-Data: 2026-09-19
-Stato: bozza da revisionare
+Date: 2026-09-19
+Status: draft for review
 
-## 1. Obiettivo
+## 1. Goal
 
-App .NET MAUI (net10) che trasforma uno smartphone in uno scanner 3D e produce
-**file STEP (B-Rep) importabili e modificabili in Autodesk Fusion**, non solo
-nuvole di punti o mesh. La stessa app gira su desktop (Windows, macOS via Mac
-Catalyst) per rielaborare le scansioni ad alta risoluzione.
+.NET MAUI app (net10) that turns a smartphone into a 3D scanner and produces
+**STEP (B-Rep) files that can be imported and edited in Autodesk Fusion**, not just
+point clouds or meshes. The same app runs on desktop (Windows, macOS via Mac
+Catalyst) to reprocess scans at high resolution.
 
-### In perimetro (v1)
-- Acquisizione su iOS (ARKit, LiDAR / scene depth) e Android (ARCore Depth API).
-- Import su desktop di sessioni `.scan` e di mesh generiche (PLY/OBJ/STL).
-- Elaborazione **interamente in locale**, stesso codice su tutte le piattaforme,
-  con profili di risoluzione diversi (mobile = bozza, desktop = fine).
-- Tre modalità selezionabili dall'utente: **Meccanico**, **Organico**, **Ambiente**.
+### In scope (v1)
+- Capture on iOS (ARKit, LiDAR / scene depth) and Android (ARCore Depth API).
+- Desktop import of `.scan` sessions and generic meshes (PLY/OBJ/STL).
+- Processing **entirely local**, same code on all platforms,
+  with different resolution profiles (mobile = draft, desktop = fine).
+- Three user-selectable modes: **Mechanical**, **Organic**, **Environment**.
 - Export: STEP AP214, STL, OBJ, PLY, `.scan`.
-- Visualizzazione 3D con Silk.NET.
+- 3D visualization with Silk.NET.
 
-### Fuori perimetro (v1)
-- Gadget esterni (ToF VL53Lx via BLE, piatto rotante con stepper). Restano
-  possibili tramite le interfacce `IDepthSource` / `IPoseSource`.
-- Elaborazione su server/cloud.
-- Backend OpenCASCADE (previsto in futuro, solo desktop, dietro `IBrepBuilder`).
-- Texture/colore sul modello STEP.
-- Fotogrammetria pura (senza profondità).
+### Out of scope (v1)
+- External gadgets (ToF VL53Lx via BLE, turntable with stepper motor). Remain
+  possible through the `IDepthSource` / `IPoseSource` interfaces.
+- Server/cloud processing.
+- OpenCASCADE backend (planned for the future, desktop only, behind `IBrepBuilder`).
+- Texture/color on the STEP model.
+- Pure photogrammetry (without depth).
 
-## 2. Architettura
+## 2. Architecture
 
 ```
 Scanner.App (MAUI, net10.0-android/ios/maccatalyst/windows)
  ├─ UI MVVM (CommunityToolkit.Mvvm)
  ├─ Platforms/iOS      → ArKitDepthSource, ArKitPoseSource
  ├─ Platforms/Android  → ArCoreDepthSource, ArCorePoseSource
- └─ Viewer             → handler MAUI che ospita il renderer Silk.NET
+ └─ Viewer             → MAUI handler that hosts the Silk.NET renderer
 
-Scanner.Capture   (net10.0)  interfacce IDepthSource, IPoseSource, ICameraSource,
-                             modello DepthFrame, formato sessione .scan
-Scanner.Core      (net10.0)  geometria, TSDF, marching cubes, pulizia mesh,
-                             segmentazione, RANSAC, fitting primitive e B-spline
-Scanner.Brep      (net10.0)  topologia B-Rep, IBrepBuilder, CSharpBrepBuilder,
-                             StepWriter AP214, export STL/OBJ/PLY
-Scanner.Render    (net10.0)  IRenderer + implementazione Silk.NET (GLES 3.0)
-Scanner.*.Tests   (xUnit)    test su Core, Brep, Capture (serializzazione)
+Scanner.Capture   (net10.0)  IDepthSource, IPoseSource, ICameraSource interfaces,
+                             DepthFrame model, .scan session format
+Scanner.Core      (net10.0)  geometry, TSDF, marching cubes, mesh cleanup,
+                             segmentation, RANSAC, primitive and B-spline fitting
+Scanner.Brep      (net10.0)  B-Rep topology, IBrepBuilder, CSharpBrepBuilder,
+                             StepWriter AP214, STL/OBJ/PLY export
+Scanner.Render    (net10.0)  IRenderer + Silk.NET implementation (GLES 3.0)
+Scanner.*.Tests   (xUnit)    tests for Core, Brep, Capture (serialization)
 ```
 
-Regole:
-- `Scanner.Core` e `Scanner.Brep` non hanno **alcuna** dipendenza da piattaforma
-  o da MAUI e sono testabili su PC.
-- Le implementazioni native vivono solo in `Scanner.App/Platforms/*`.
-- Il calcolo usa `System.Numerics` (SIMD) e `Parallel`; niente GPU compute in v1.
+Rules:
+- `Scanner.Core` and `Scanner.Brep` have **no** dependency on any platform
+  or on MAUI, and are testable on a PC.
+- Native implementations live only in `Scanner.App/Platforms/*`.
+- Computation uses `System.Numerics` (SIMD) and `Parallel`; no GPU compute in v1.
 
-## 3. Acquisizione
+## 3. Capture
 
-- `IDepthSource` produce `DepthFrame`: mappa di profondità (float32, metri),
-  confidenza opzionale, intrinseci (fx, fy, cx, cy), timestamp.
-- `IPoseSource` produce la posa camera→mondo (matrice 4x4) per timestamp.
-- iOS: `ARFrame.sceneDepth` (LiDAR, 256×192) o `smoothedSceneDepth`; posa da
+- `IDepthSource` produces `DepthFrame`: depth map (float32, meters),
+  optional confidence, intrinsics (fx, fy, cx, cy), timestamp.
+- `IPoseSource` produces the camera→world pose (4x4 matrix) for a timestamp.
+- iOS: `ARFrame.sceneDepth` (LiDAR, 256×192) or `smoothedSceneDepth`; pose from
   `ARCamera.transform`.
-- Android: ARCore `acquireDepthImage16Bits` + confidence; posa da `Camera.getPose`.
-- Frequenza di integrazione 5–10 Hz, frame scartati se il tracking non è `Normal`.
-- Il dispositivo senza supporto profondità mostra un messaggio e permette solo
-  la modalità import.
+- Android: ARCore `acquireDepthImage16Bits` + confidence; pose from `Camera.getPose`.
+- Integration frequency 5–10 Hz, frames discarded if tracking is not `Normal`.
+- A device without depth support shows a message and only allows
+  import mode.
 
-### Formato sessione `.scan`
-Archivio zip:
-- `manifest.json` — versione formato, dispositivo, modalità, intrinseci, unità.
-- `frames/NNNNNN.depth` — profondità float16 compressa + confidenza.
-- `frames/NNNNNN.pose` — matrice 4x4 float32.
-- `keyframes/NNNNNN.jpg` — foto opzionali (per usi futuri).
+### `.scan` session format
+Zip archive:
+- `manifest.json` — format version, device, mode, intrinsics, units.
+- `frames/NNNNNN.depth` — compressed float16 depth + confidence.
+- `frames/NNNNNN.pose` — 4x4 float32 matrix.
+- `keyframes/NNNNNN.jpg` — optional photos (for future uses).
 
-Serve a rielaborare su desktop ad alta risoluzione e come dato di test.
+Used to reprocess at high resolution on desktop and as test data.
 
-## 4. Pipeline di elaborazione
+## 4. Processing pipeline
 
-Fasi comuni:
-1. **Fusione TSDF** su griglia voxel sparsa (blocchi 8³ in hash map).
-   Voxel: mobile 4–8 mm, desktop 1–2 mm (parametri per profilo).
-2. **Marching Cubes** → mesh triangolare.
-3. **Pulizia**: rimozione componenti piccole, smoothing leggero (Taubin),
-   ricalcolo normali, decimazione opzionale.
-4. **Ritaglio**: box 3D dell'utente; rimozione automatica del piano d'appoggio
-   (RANSAC sul piano dominante sotto l'oggetto).
+Common stages:
+1. **TSDF fusion** on a sparse voxel grid (8³ blocks in a hash map).
+   Voxel size: mobile 4–8 mm, desktop 1–2 mm (per-profile parameters).
+2. **Marching Cubes** → triangle mesh.
+3. **Cleanup**: removal of small components, light smoothing (Taubin),
+   normal recomputation, optional decimation.
+4. **Cropping**: user's 3D box; automatic removal of the support plane
+   (RANSAC on the dominant plane under the object).
 
-Fasi per modalità:
+Stages per mode:
 
-| Modalità | Algoritmo | Output STEP |
+| Mode | Algorithm | STEP output |
 |---|---|---|
-| Meccanico | Region growing su normali + RANSAC efficiente (piano, cilindro, cono, sfera), raffinamento ai minimi quadrati; spigoli e vertici da intersezione di primitive adiacenti; snap opzionale (parallelismo, perpendicolarità, coassialità, raggi standard) | Solido chiuso con superfici analitiche |
-| Organico | Partizione in patch quadrangolari, fitting B-spline per patch, continuità C0 (G1 approssimata) ai bordi | Shell di `B_SPLINE_SURFACE_WITH_KNOTS` |
-| Ambiente | RANSAC solo piani; pavimento, soffitto, pareti verticali; pianta 2D estrusa; aperture rettangolari | Solido pareti/pavimento o set di superfici |
+| Mechanical | Region growing on normals + efficient RANSAC (plane, cylinder, cone, sphere), least-squares refinement; edges and vertices from intersection of adjacent primitives; optional snapping (parallelism, perpendicularity, coaxiality, standard radii) | Closed solid with analytic surfaces |
+| Organic | Partition into quadrangular patches, B-spline fitting per patch, C0 continuity (approximated G1) at boundaries | Shell of `B_SPLINE_SURFACE_WITH_KNOTS` |
+| Environment | Plane-only RANSAC; floor, ceiling, vertical walls; extruded 2D floor plan; rectangular openings | Wall/floor solid or set of surfaces |
 
-**Ripiego**: se la topologia non si chiude, si esportano comunque STL/OBJ e uno
-STEP "a faccette" (facce triangolari planari). L'app mostra una metrica di
-qualità: % area coperta da primitive e RMS dell'errore in mm.
+**Fallback**: if the topology does not close, STL/OBJ are exported anyway along with a
+"faceted" STEP (planar triangular faces). The app shows a quality
+metric: % of area covered by primitives and RMS of the error in mm.
 
-**Limiti noti**: raccordi e smussi sotto ~3× la dimensione voxel diventano
-spigoli vivi; continuità tra patch organiche solo approssimata.
+**Known limits**: fillets and chamfers below ~3x the voxel size become
+sharp edges; continuity between organic patches is only approximate.
 
-## 5. B-Rep ed export STEP
+## 5. B-Rep and STEP export
 
-- `IBrepBuilder` riceve primitive e adiacenze, restituisce un modello B-Rep
-  (vertici, spigoli, loop, facce, shell, solido).
-- `CSharpBrepBuilder` (v1): calcola gli spigoli per intersezione analitica
-  (piano-piano, piano-cilindro, piano-cono, piano-sfera, cilindro-cilindro
-  coassiale); le intersezioni non gestite degradano a spigoli polilinea/B-spline
-  approssimati.
-- `StepWriter`: scrive ISO 10303-21, schema AP214 (`AUTOMOTIVE_DESIGN`), unità mm.
-  Entità: `MANIFOLD_SOLID_BREP`, `CLOSED_SHELL`, `ADVANCED_FACE`, `PLANE`,
+- `IBrepBuilder` receives primitives and adjacencies, returns a B-Rep model
+  (vertices, edges, loops, faces, shells, solid).
+- `CSharpBrepBuilder` (v1): computes edges by analytic intersection
+  (plane-plane, plane-cylinder, plane-cone, plane-sphere, coaxial
+  cylinder-cylinder); unhandled intersections degrade to approximate
+  polyline/B-spline edges.
+- `StepWriter`: writes ISO 10303-21, AP214 schema (`AUTOMOTIVE_DESIGN`), units in mm.
+  Entities: `MANIFOLD_SOLID_BREP`, `CLOSED_SHELL`, `ADVANCED_FACE`, `PLANE`,
   `CYLINDRICAL_SURFACE`, `CONICAL_SURFACE`, `SPHERICAL_SURFACE`,
   `B_SPLINE_SURFACE_WITH_KNOTS`, `EDGE_CURVE`, `LINE`, `CIRCLE`,
-  `B_SPLINE_CURVE_WITH_KNOTS`, e le entità di contesto prodotto richieste.
-- Validazione interna prima dell'export: ogni spigolo condiviso da esattamente
-  due facce, caratteristica di Eulero coerente, loop chiusi e orientati.
-- Futuro: `OcctBrepBuilder` (OpenCASCADE) solo su desktop, stessa interfaccia.
+  `B_SPLINE_CURVE_WITH_KNOTS`, and the required product context entities.
+- Internal validation before export: every edge shared by exactly
+  two faces, consistent Euler characteristic, closed and oriented loops.
+- Future: `OcctBrepBuilder` (OpenCASCADE) desktop only, same interface.
 
 ## 6. Rendering (Silk.NET)
 
-- `IRenderer`: carica mesh (posizioni, normali, colori per vertice, indici),
-  camera orbitale, selezione (ray picking), linee di spigoli, gizmo del box di
-  ritaglio, overlay trasparente.
-- Implementazione: **OpenGL ES 3.0 via Silk.NET**.
-  - Windows: ANGLE (D3D11) o WGL.
-  - Android: EGL nativo.
-  - iOS / Mac Catalyst: **ANGLE con backend Metal**.
-- Ospitato in un handler MAUI per piattaforma che fornisce la superficie nativa.
-- **Rischio principale**: disponibilità e packaging di ANGLE su iOS/Catalyst.
-  Mitigazione: primo compito del piano è uno spike (triangolo → mesh sulle 4
-  piattaforme). Se fallisce su Apple, si passa a **Silk.NET.WebGPU**
-  (wgpu-native) dietro la stessa `IRenderer`.
-- Durante l'acquisizione: preview camera nativa (ARKit/ARCore) con overlay della
-  mesh TSDF disegnata dal renderer Silk.NET su layer trasparente.
+- `IRenderer`: loads mesh (positions, normals, per-vertex colors, indices),
+  orbit camera, selection (ray picking), edge lines, crop box gizmo,
+  transparent overlay.
+- Implementation: **OpenGL ES 3.0 via Silk.NET**.
+  - Windows: ANGLE (D3D11) or WGL.
+  - Android: native EGL.
+  - iOS / Mac Catalyst: **ANGLE with Metal backend**.
+- Hosted in a per-platform MAUI handler that provides the native surface.
+- **Main risk**: availability and packaging of ANGLE on iOS/Catalyst.
+  Mitigation: the plan's first task is a spike (triangle → mesh on the 4
+  platforms). If it fails on Apple, switch to **Silk.NET.WebGPU**
+  (wgpu-native) behind the same `IRenderer`.
+- During capture: native camera preview (ARKit/ARCore) with the TSDF mesh
+  overlay drawn by the Silk.NET renderer on a transparent layer.
 
-## 7. UI e flusso
+## 7. UI and flow
 
-1. **Progetti**: elenco scansioni (miniatura, modalità, data); su desktop "Importa".
-2. **Nuova scansione**: modalità + qualità (Bozza / Fine).
-3. **Acquisizione** (mobile): preview + mesh live colorata per copertura;
-   Start / Pausa / Fine; avvisi (troppo veloce, troppo lontano, tracking perso).
-4. **Ritaglio**: box 3D, "rimuovi piano d'appoggio".
-5. **Elaborazione**: progresso per fase, annullabile, in background.
-6. **Risultato**: vista 3D con primitive colorate per tipo, heatmap errore,
-   statistiche; parametri (tolleranza RANSAC, snap, raggio minimo) con
-   "rilancia fitting".
-7. **Export**: STEP / STL / OBJ / PLY / `.scan` via share sheet o "Salva con nome".
+1. **Projects**: list of scans (thumbnail, mode, date); "Import" on desktop.
+2. **New scan**: mode + quality (Draft / Fine).
+3. **Capture** (mobile): preview + live mesh colored by coverage;
+   Start / Pause / Finish; warnings (too fast, too far, tracking lost).
+4. **Crop**: 3D box, "remove support plane".
+5. **Processing**: progress per stage, cancellable, in background.
+6. **Result**: 3D view with primitives colored by type, error heatmap,
+   statistics; parameters (RANSAC tolerance, snapping, minimum radius) with
+   "rerun fitting".
+7. **Export**: STEP / STL / OBJ / PLY / `.scan` via share sheet or "Save as".
 
-## 8. Gestione errori
+## 8. Error handling
 
-- Tracking perso o profondità non valida: frame scartato, avviso in UI.
-- Memoria: limite di voxel per profilo; oltre soglia si aumenta la dimensione
-  voxel e si avvisa l'utente.
-- Fallimento fitting/B-Rep: si passa al ripiego (mesh + STEP a faccette) con
-  motivazione mostrata all'utente, mai un crash.
-- Elaborazione annullabile tramite `CancellationToken` in tutte le fasi.
+- Tracking lost or invalid depth: frame discarded, warning in the UI.
+- Memory: voxel limit per profile; above threshold the voxel size is
+  increased and the user is warned.
+- Fitting/B-Rep failure: falls back (mesh + faceted STEP) with the
+  reason shown to the user, never a crash.
+- Processing cancellable via `CancellationToken` in all stages.
 
-## 9. Test
+## 9. Testing
 
-- **Sintetici** (`Scanner.Core.Tests`): generatore di oggetti noti (cubo,
-  cilindro forato, flangia, sfera, stanza) e simulatore di frame di profondità
-  da pose note con rumore e buchi. Verifica che fusione e fitting ritrovino
-  le primitive entro tolleranza.
-- **STEP** (`Scanner.Brep.Tests`): file sintatticamente valido (parser interno),
-  topologia chiusa, golden file per casi semplici.
-- **Regressione reale**: scansioni `.scan` reali in `testdata/` (Git LFS).
-- **Manuale**: checklist di import in Fusion su un set fisso di esempi;
-  prove su dispositivo per acquisizione e UI.
+- **Synthetic** (`Scanner.Core.Tests`): generator of known objects (cube,
+  drilled cylinder, flange, sphere, room) and depth-frame simulator
+  from known poses with noise and holes. Verifies that fusion and fitting
+  recover the primitives within tolerance.
+- **STEP** (`Scanner.Brep.Tests`): syntactically valid file (internal parser),
+  closed topology, golden file for simple cases.
+- **Real regression**: real `.scan` scans in `testdata/` (Git LFS).
+- **Manual**: import checklist in Fusion on a fixed set of examples;
+  on-device testing for capture and UI.
 
-## 10. Milestone
+## 10. Milestones
 
-1. Spike renderer Silk.NET su Windows, Android, iOS, Mac Catalyst.
-2. Core su dati sintetici: TSDF → mesh → RANSAC → B-Rep → STEP di cubo e
-   cilindro forato, verificato in Fusion.
-3. Formato `.scan` + import desktop + viewer risultati.
-4. Acquisizione iOS (ARKit).
-5. Acquisizione Android (ARCore).
-6. Modalità Ambiente.
-7. Modalità Organico (B-spline).
-8. Rifiniture UI, export, profili di qualità.
+1. Silk.NET renderer spike on Windows, Android, iOS, Mac Catalyst.
+2. Core on synthetic data: TSDF → mesh → RANSAC → B-Rep → STEP of a cube and
+   drilled cylinder, verified in Fusion.
+3. `.scan` format + desktop import + results viewer.
+4. iOS capture (ARKit).
+5. Android capture (ARCore).
+6. Environment mode.
+7. Organic mode (B-spline).
+8. UI polish, export, quality profiles.

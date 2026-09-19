@@ -3,7 +3,7 @@ using Scanner.Capture;
 
 namespace Scanner.Core.Synthetic;
 
-/// <summary>Genera mappe di profondità per sphere tracing su una SDF.</summary>
+/// <summary>Generates depth maps via sphere tracing over an SDF.</summary>
 public static class SyntheticDepthRenderer
 {
     private const int MaxSteps = 256;

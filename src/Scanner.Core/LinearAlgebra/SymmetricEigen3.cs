@@ -2,10 +2,10 @@ using System.Numerics;
 
 namespace Scanner.Core.LinearAlgebra;
 
-/// <summary>Autovalori e autovettori di una matrice 3x3 simmetrica (metodo di Jacobi).</summary>
+/// <summary>Eigenvalues and eigenvectors of a symmetric 3x3 matrix (Jacobi method).</summary>
 public static class SymmetricEigen3
 {
-    /// <summary>Autovalori in ordine crescente con i relativi autovettori unitari.</summary>
+    /// <summary>Eigenvalues in increasing order with their corresponding unit eigenvectors.</summary>
     public static (double[] Values, Vector3[] Vectors) Solve(double[,] matrix)
     {
         var a = (double[,])matrix.Clone();
@@ -35,7 +35,7 @@ public static class SymmetricEigen3
         return (values, vectors);
     }
 
-    // A ← Pᵀ·A·P, V ← V·P con P rotazione di Jacobi nel piano (p, q).
+    // A ← Pᵀ·A·P, V ← V·P with P a Jacobi rotation in the (p, q) plane.
     private static void Rotate(double[,] a, double[,] v, int p, int q, double c, double s)
     {
         for (int k = 0; k < 3; k++)

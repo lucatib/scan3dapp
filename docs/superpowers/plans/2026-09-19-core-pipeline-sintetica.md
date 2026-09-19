@@ -1,30 +1,30 @@
-# Pipeline core sintetica → STEP — Implementation Plan
+# Synthetic core pipeline → STEP — Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Da scansioni di profondità sintetiche di un cubo e di un tubo (cilindro forato) produrre file STEP AP214 con superfici analitiche, validi e apribili in Autodesk Fusion.
+**Goal:** From synthetic depth scans of a cube and a tube (drilled cylinder), produce STEP AP214 files with analytic surfaces, valid and openable in Autodesk Fusion.
 
-**Architecture:** Librerie .NET pure (`Scanner.Capture`, `Scanner.Core`, `Scanner.Brep`) senza dipendenze da piattaforma. Pipeline: frame di profondità → fusione TSDF sparsa → Naive Surface Nets (mesh + normali da gradiente TSDF) → RANSAC piani/cilindri con raffinamento ai minimi quadrati → costruzione B-Rep (poliedro convesso da piani, oppure tubo coassiale) → validazione topologica → writer STEP in C#. Un piccolo CLI genera i file di esempio per la verifica manuale in Fusion.
+**Architecture:** Pure .NET libraries (`Scanner.Capture`, `Scanner.Core`, `Scanner.Brep`) with no platform dependencies. Pipeline: depth frames → sparse TSDF fusion → Naive Surface Nets (mesh + normals from the TSDF gradient) → plane/cylinder RANSAC with least-squares refinement → B-Rep construction (convex polyhedron from planes, or coaxial tube) → topological validation → STEP writer in C#. A small CLI generates the sample files for manual verification in Fusion.
 
 **Tech Stack:** .NET 10 (`net10.0`), C# latest, `System.Numerics`, xUnit.
 
-**Spec:** `docs/superpowers/specs/2026-09-19-scan3d-design.md` (sezioni 2, 4, 5, 9; milestone 2)
+**Spec:** `docs/superpowers/specs/2026-09-19-scan3d-design.md` (sections 2, 4, 5, 9; milestone 2)
 
 ## Global Constraints
 
-- Tutti i progetti: `net10.0`, `Nullable` enable, `ImplicitUsings` enable, `TreatWarningsAsErrors` true.
-- `Scanner.Core` e `Scanner.Brep` non hanno **alcuna** dipendenza da piattaforma o da MAUI.
-- Unità interne: **metri**. Lo STEP è scritto in **millimetri** (`SI_UNIT(.MILLI.,.METRE.)`).
-- Convenzione camera: OpenCV (x destra, y giù, z avanti); `Matrix4x4` di System.Numerics a vettori riga (`Vector3.Transform(p, cameraToWorld)`).
-- TSDF normalizzata in [-1, 1], **positiva fuori** dall'oggetto; le normali puntano fuori dal solido.
-- Schema STEP: `AUTOMOTIVE_DESIGN { 1 0 10303 214 1 1 1 1 }` (AP214).
-- Numeri STEP formattati con `CultureInfo.InvariantCulture`, sempre con punto decimale e senza esponente.
-- Lavoro diretto su `main`; ogni commit termina con la riga `Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>`.
-- Nessun `Xunit` using esplicito nei test: il template xUnit aggiunge `<Using Include="Xunit" />` globale.
+- All projects: `net10.0`, `Nullable` enable, `ImplicitUsings` enable, `TreatWarningsAsErrors` true.
+- `Scanner.Core` and `Scanner.Brep` have **no** dependency on any platform or on MAUI.
+- Internal units: **meters**. STEP is written in **millimeters** (`SI_UNIT(.MILLI.,.METRE.)`).
+- Camera convention: OpenCV (x right, y down, z forward); System.Numerics `Matrix4x4` with row vectors (`Vector3.Transform(p, cameraToWorld)`).
+- TSDF normalized to [-1, 1], **positive outside** the object; normals point out of the solid.
+- STEP schema: `AUTOMOTIVE_DESIGN { 1 0 10303 214 1 1 1 1 }` (AP214).
+- STEP numbers formatted with `CultureInfo.InvariantCulture`, always with a decimal point and no exponent.
+- Work directly on `main`; every commit ends with the line `Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>`.
+- No explicit `Xunit` using in tests: the xUnit template adds a global `<Using Include="Xunit" />`.
 
-**Deviazioni consapevoli dalla spec (da riportare all'utente):**
-- Meshing con **Naive Surface Nets** invece di Marching Cubes: nessuna tabella da 256 casi, mesh più regolare; stessa interfaccia, sostituibile in seguito.
-- In questo piano il costruttore B-Rep "Meccanico" copre solo **poliedri convessi** (solo piani) e **tubi/cilindri coassiali** con due tappi ortogonali. Il costruttore generale per intersezione di primitive, lo STEP "a faccette" di ripiego e i golden file arrivano in piani successivi.
+**Conscious deviations from the spec (to report to the user):**
+- Meshing with **Naive Surface Nets** instead of Marching Cubes: no 256-case table, more regular mesh; same interface, replaceable later.
+- In this plan, the "Mechanical" B-Rep builder covers only **convex polyhedra** (planes only) and **coaxial tubes/cylinders** with two orthogonal caps. The general builder for primitive intersection, the "faceted" fallback STEP, and golden files arrive in later plans.
 
 ## File Structure
 
@@ -33,41 +33,41 @@ Scan3D.slnx
 Directory.Build.props
 .gitignore
 src/Scanner.Capture/
-  CameraIntrinsics.cs          intrinseci pinhole
-  DepthFrame.cs                frame di profondità + posa
+  CameraIntrinsics.cs          pinhole intrinsics
+  DepthFrame.cs                depth frame + pose
 src/Scanner.Core/
-  ProcessingProfile.cs         profili Bozza/Fine
-  LinearAlgebra/Basis.cs       base ortonormale di un piano
-  LinearAlgebra/Linear3.cs     sistema lineare 3x3
-  LinearAlgebra/SymmetricEigen3.cs  autovalori 3x3 simmetrica (Jacobi)
+  ProcessingProfile.cs         Draft/Fine profiles
+  LinearAlgebra/Basis.cs       orthonormal basis of a plane
+  LinearAlgebra/Linear3.cs     3x3 linear system
+  LinearAlgebra/SymmetricEigen3.cs  symmetric 3x3 eigenvalues (Jacobi)
   Synthetic/ISdf.cs            SphereSdf, BoxSdf, TubeSdf
-  Synthetic/CameraPoses.cs     LookAt, pose su sfera di Fibonacci
+  Synthetic/CameraPoses.cs     LookAt, poses on a Fibonacci sphere
   Synthetic/SyntheticDepthRenderer.cs  sphere tracing → DepthFrame
-  Synthetic/SyntheticScan.cs   scansione simulata multi-vista
-  Fusion/TsdfVolume.cs         TSDF sparsa a blocchi 8³
-  Meshing/TriangleMesh.cs      mesh con normali per vertice
-  Meshing/SurfaceNets.cs       estrazione isosuperficie
+  Synthetic/SyntheticScan.cs   simulated multi-view scan
+  Fusion/TsdfVolume.cs         sparse block-based TSDF
+  Meshing/TriangleMesh.cs      mesh with per-vertex normals
+  Meshing/SurfaceNets.cs       isosurface extraction
   Shapes/Primitives.cs         PlanePrimitive, CylinderPrimitive
   Segmentation/PointCloud.cs   PointCloud, RansacOptions, DetectedShape
-  Segmentation/PrimitiveFitter.cs  fitting ai minimi quadrati
-  Segmentation/RansacDetector.cs   RANSAC sequenziale piani/cilindri
+  Segmentation/PrimitiveFitter.cs  least-squares fitting
+  Segmentation/RansacDetector.cs   sequential plane/cylinder RANSAC
 src/Scanner.Brep/
-  Model/BrepModel.cs           vertici, spigoli, loop, facce, solido
-  Model/BrepValidator.cs       validazione topologica
+  Model/BrepModel.cs           vertices, edges, loops, faces, solid
+  Model/BrepValidator.cs       topological validation
   Builders/ConvexPolyhedronBuilder.cs
   Builders/TubeBuilder.cs
   Step/StepWriter.cs           ISO 10303-21 AP214
-  Reconstruction/MechanicalReconstructor.cs  forme → B-Rep
+  Reconstruction/MechanicalReconstructor.cs  shapes → B-Rep
   Reconstruction/ScanToStep.cs frame → STEP
-tests/Scanner.Core.Tests/…     un file di test per componente
-tests/Scanner.Brep.Tests/…     un file di test per componente + StepSyntaxChecker
-tools/Scanner.Cli/Program.cs   genera cube/tube .stp
-docs/fusion-checklist.md       verifica manuale in Fusion
+tests/Scanner.Core.Tests/…     one test file per component
+tests/Scanner.Brep.Tests/…     one test file per component + StepSyntaxChecker
+tools/Scanner.Cli/Program.cs   generates cube/tube .stp
+docs/fusion-checklist.md       manual verification in Fusion
 ```
 
 ---
 
-### Task 1: Scaffold della solution + algebra lineare
+### Task 1: Solution scaffold + linear algebra
 
 **Files:**
 - Create: `Directory.Build.props`, `Scan3D.slnx` (via CLI), `.gitignore` (via CLI)
@@ -78,13 +78,13 @@ docs/fusion-checklist.md       verifica manuale in Fusion
 
 **Interfaces:**
 - Produces:
-  - `static (Vector3 U, Vector3 V) Basis.Orthonormal(Vector3 n)` — `n` unitario, `U × V = n`.
+  - `static (Vector3 U, Vector3 V) Basis.Orthonormal(Vector3 n)` — `n` unit vector, `U × V = n`.
   - `static bool Linear3.TrySolve(double[,] a, double[] b, out double[] x)`; `static double Linear3.Det(double[,] m)`.
-  - `static (double[] Values, Vector3[] Vectors) SymmetricEigen3.Solve(double[,] matrix)` — autovalori crescenti, autovettori unitari.
+  - `static (double[] Values, Vector3[] Vectors) SymmetricEigen3.Solve(double[,] matrix)` — increasing eigenvalues, unit eigenvectors.
 
-- [ ] **Step 1: Creare la solution e i progetti**
+- [ ] **Step 1: Create the solution and projects**
 
-Da `C:\Workspace\scan3dapp`:
+From `C:\Workspace\scan3dapp`:
 
 ```bash
 dotnet new gitignore
@@ -103,9 +103,9 @@ dotnet add tests/Scanner.Core.Tests reference src/Scanner.Core
 dotnet add tests/Scanner.Brep.Tests reference src/Scanner.Brep
 ```
 
-Verificare che entrambi i `.csproj` di test contengano `<Using Include="Xunit" />`; se manca, aggiungerlo in un `<ItemGroup>`.
+Verify that both test `.csproj` files contain `<Using Include="Xunit" />`; if missing, add it in an `<ItemGroup>`.
 
-- [ ] **Step 2: Creare `Directory.Build.props`**
+- [ ] **Step 2: Create `Directory.Build.props`**
 
 ```xml
 <Project>
@@ -118,9 +118,9 @@ Verificare che entrambi i `.csproj` di test contengano `<Using Include="Xunit" /
 </Project>
 ```
 
-(Il `TargetFramework` resta nei singoli `.csproj`: metterlo qui romperebbe il multi-targeting della futura app MAUI.)
+(The `TargetFramework` stays in the individual `.csproj` files: putting it here would break multi-targeting for the future MAUI app.)
 
-- [ ] **Step 3: Scrivere i test che falliscono**
+- [ ] **Step 3: Write the failing tests**
 
 `tests/Scanner.Core.Tests/LinearAlgebra/LinearAlgebraTests.cs`:
 
@@ -213,12 +213,12 @@ public class LinearAlgebraTests
 }
 ```
 
-- [ ] **Step 4: Eseguire i test e verificare che falliscano**
+- [ ] **Step 4: Run the tests and verify they fail**
 
 Run: `dotnet test tests/Scanner.Core.Tests`
-Expected: FAIL di compilazione — `The type or namespace name 'LinearAlgebra' does not exist`.
+Expected: compilation FAILURE — `The type or namespace name 'LinearAlgebra' does not exist`.
 
-- [ ] **Step 5: Implementare**
+- [ ] **Step 5: Implement**
 
 `src/Scanner.Core/LinearAlgebra/Basis.cs`:
 
@@ -229,7 +229,7 @@ namespace Scanner.Core.LinearAlgebra;
 
 public static class Basis
 {
-    /// <summary>Base ortonormale (U, V) del piano ortogonale a <paramref name="n"/> (unitario), con U × V = n.</summary>
+    /// <summary>Orthonormal basis (U, V) of the plane orthogonal to <paramref name="n"/> (unit vector), with U × V = n.</summary>
     public static (Vector3 U, Vector3 V) Orthonormal(Vector3 n)
     {
         var helper = MathF.Abs(n.X) < 0.9f ? Vector3.UnitX : Vector3.UnitY;
@@ -247,7 +247,7 @@ namespace Scanner.Core.LinearAlgebra;
 
 public static class Linear3
 {
-    /// <summary>Risolve A·x = b con la regola di Cramer. Restituisce false se A è quasi singolare.</summary>
+    /// <summary>Solves A·x = b using Cramer's rule. Returns false if A is nearly singular.</summary>
     public static bool TrySolve(double[,] a, double[] b, out double[] x)
     {
         x = new double[3];
@@ -279,10 +279,10 @@ using System.Numerics;
 
 namespace Scanner.Core.LinearAlgebra;
 
-/// <summary>Autovalori e autovettori di una matrice 3x3 simmetrica (metodo di Jacobi).</summary>
+/// <summary>Eigenvalues and eigenvectors of a symmetric 3x3 matrix (Jacobi method).</summary>
 public static class SymmetricEigen3
 {
-    /// <summary>Autovalori in ordine crescente con i relativi autovettori unitari.</summary>
+    /// <summary>Eigenvalues in increasing order with their corresponding unit eigenvectors.</summary>
     public static (double[] Values, Vector3[] Vectors) Solve(double[,] matrix)
     {
         var a = (double[,])matrix.Clone();
@@ -312,7 +312,7 @@ public static class SymmetricEigen3
         return (values, vectors);
     }
 
-    // A ← Pᵀ·A·P, V ← V·P con P rotazione di Jacobi nel piano (p, q).
+    // A ← Pᵀ·A·P, V ← V·P with P a Jacobi rotation in the (p, q) plane.
     private static void Rotate(double[,] a, double[,] v, int p, int q, double c, double s)
     {
         for (int k = 0; k < 3; k++)
@@ -337,21 +337,21 @@ public static class SymmetricEigen3
 }
 ```
 
-- [ ] **Step 6: Eseguire i test e verificare che passino**
+- [ ] **Step 6: Run the tests and verify they pass**
 
 Run: `dotnet test tests/Scanner.Core.Tests`
-Expected: PASS (8 test). Poi `dotnet build Scan3D.slnx` senza warning.
+Expected: PASS (8 tests). Then `dotnet build Scan3D.slnx` with no warnings.
 
 - [ ] **Step 7: Commit**
 
 ```bash
 git add -A
-git commit -m "feat(core): scaffold solution e algebra lineare 3x3" -m "Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
+git commit -m "feat(core): scaffold solution and 3x3 linear algebra" -m "Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 ```
 
 ---
 
-### Task 2: Tipi di acquisizione + generatore di scansioni sintetiche
+### Task 2: Capture types + synthetic scan generator
 
 **Files:**
 - Create: `src/Scanner.Capture/CameraIntrinsics.cs`, `src/Scanner.Capture/DepthFrame.cs`
@@ -359,16 +359,16 @@ git commit -m "feat(core): scaffold solution e algebra lineare 3x3" -m "Co-Autho
 - Test: `tests/Scanner.Core.Tests/Synthetic/SyntheticTests.cs`
 
 **Interfaces:**
-- Consumes: niente.
+- Consumes: nothing.
 - Produces:
   - `readonly record struct CameraIntrinsics(int Width, int Height, float Fx, float Fy, float Cx, float Cy)`
-  - `sealed record DepthFrame(CameraIntrinsics Intrinsics, float[] Depth, Matrix4x4 CameraToWorld, double TimestampSeconds)` con `float DepthAt(int u, int v)`; profondità z in metri, 0 = non valida.
-  - `interface ISdf { float Distance(Vector3 p); }`; `SphereSdf(Vector3 Center, float Radius)`, `BoxSdf(Vector3 Center, Vector3 HalfSize)`, `TubeSdf(Vector3 Center, float OuterRadius, float InnerRadius, float Height)` (asse Z).
+  - `sealed record DepthFrame(CameraIntrinsics Intrinsics, float[] Depth, Matrix4x4 CameraToWorld, double TimestampSeconds)` with `float DepthAt(int u, int v)`; depth z in meters, 0 = invalid.
+  - `interface ISdf { float Distance(Vector3 p); }`; `SphereSdf(Vector3 Center, float Radius)`, `BoxSdf(Vector3 Center, Vector3 HalfSize)`, `TubeSdf(Vector3 Center, float OuterRadius, float InnerRadius, float Height)` (Z axis).
   - `static Matrix4x4 CameraPoses.LookAt(Vector3 eye, Vector3 target)`; `static IReadOnlyList<Matrix4x4> CameraPoses.FibonacciSphere(int count, float radius, Vector3 target)`.
   - `static DepthFrame SyntheticDepthRenderer.Render(ISdf sdf, CameraIntrinsics k, Matrix4x4 cameraToWorld, float noiseSigma = 0f, int seed = 0, double timestampSeconds = 0)`.
   - `static CameraIntrinsics SyntheticScan.DefaultIntrinsics` (320×240, f=300); `static IReadOnlyList<DepthFrame> SyntheticScan.Capture(ISdf shape, int views, float cameraDistance, CameraIntrinsics intrinsics, float noiseSigma, int seed)`.
 
-- [ ] **Step 1: Scrivere i test che falliscono**
+- [ ] **Step 1: Write the failing tests**
 
 `tests/Scanner.Core.Tests/Synthetic/SyntheticTests.cs`:
 
@@ -438,19 +438,19 @@ public class SyntheticTests
 }
 ```
 
-- [ ] **Step 2: Eseguire i test e verificare che falliscano**
+- [ ] **Step 2: Run the tests and verify they fail**
 
 Run: `dotnet test tests/Scanner.Core.Tests --filter "FullyQualifiedName~SyntheticTests"`
-Expected: FAIL di compilazione — `Scanner.Capture` / `Scanner.Core.Synthetic` inesistenti.
+Expected: compilation FAILURE — `Scanner.Capture` / `Scanner.Core.Synthetic` do not exist.
 
-- [ ] **Step 3: Implementare**
+- [ ] **Step 3: Implement**
 
 `src/Scanner.Capture/CameraIntrinsics.cs`:
 
 ```csharp
 namespace Scanner.Capture;
 
-/// <summary>Intrinseci pinhole in pixel, convenzione OpenCV (x destra, y giù, z avanti).</summary>
+/// <summary>Pinhole intrinsics in pixels, OpenCV convention (x right, y down, z forward).</summary>
 public readonly record struct CameraIntrinsics(int Width, int Height, float Fx, float Fy, float Cx, float Cy);
 ```
 
@@ -461,7 +461,7 @@ using System.Numerics;
 
 namespace Scanner.Capture;
 
-/// <summary>Mappa di profondità (z in metri, 0 = non valida) con la posa camera→mondo al momento dello scatto.</summary>
+/// <summary>Depth map (z in meters, 0 = invalid) with the camera→world pose at capture time.</summary>
 public sealed record DepthFrame(CameraIntrinsics Intrinsics, float[] Depth, Matrix4x4 CameraToWorld, double TimestampSeconds)
 {
     public float DepthAt(int u, int v) => Depth[v * Intrinsics.Width + u];
@@ -475,7 +475,7 @@ using System.Numerics;
 
 namespace Scanner.Core.Synthetic;
 
-/// <summary>Funzione di distanza con segno: negativa dentro l'oggetto.</summary>
+/// <summary>Signed distance function: negative inside the object.</summary>
 public interface ISdf
 {
     float Distance(Vector3 p);
@@ -497,7 +497,7 @@ public sealed record BoxSdf(Vector3 Center, Vector3 HalfSize) : ISdf
     }
 }
 
-/// <summary>Cilindro forato con asse Z centrato in <see cref="Center"/>.</summary>
+/// <summary>Drilled cylinder with Z axis centered at <see cref="Center"/>.</summary>
 public sealed record TubeSdf(Vector3 Center, float OuterRadius, float InnerRadius, float Height) : ISdf
 {
     public float Distance(Vector3 p)
@@ -522,7 +522,7 @@ namespace Scanner.Core.Synthetic;
 
 public static class CameraPoses
 {
-    /// <summary>Posa camera→mondo (convenzione OpenCV) che guarda <paramref name="target"/> da <paramref name="eye"/>.</summary>
+    /// <summary>Camera→world pose (OpenCV convention) looking at <paramref name="target"/> from <paramref name="eye"/>.</summary>
     public static Matrix4x4 LookAt(Vector3 eye, Vector3 target)
     {
         var forward = Vector3.Normalize(target - eye);
@@ -536,7 +536,7 @@ public static class CameraPoses
             eye.X, eye.Y, eye.Z, 1);
     }
 
-    /// <summary><paramref name="count"/> pose distribuite uniformemente su una sfera, tutte rivolte al centro.</summary>
+    /// <summary><paramref name="count"/> poses uniformly distributed on a sphere, all facing the center.</summary>
     public static IReadOnlyList<Matrix4x4> FibonacciSphere(int count, float radius, Vector3 target)
     {
         float golden = MathF.PI * (3f - MathF.Sqrt(5f));
@@ -562,7 +562,7 @@ using Scanner.Capture;
 
 namespace Scanner.Core.Synthetic;
 
-/// <summary>Genera mappe di profondità per sphere tracing su una SDF.</summary>
+/// <summary>Generates depth maps via sphere tracing over an SDF.</summary>
 public static class SyntheticDepthRenderer
 {
     private const int MaxSteps = 256;
@@ -622,7 +622,7 @@ using Scanner.Capture;
 
 namespace Scanner.Core.Synthetic;
 
-/// <summary>Scansione simulata: viste distribuite su una sfera attorno all'origine.</summary>
+/// <summary>Simulated scan: views distributed on a sphere around the origin.</summary>
 public static class SyntheticScan
 {
     public static CameraIntrinsics DefaultIntrinsics => new(320, 240, 300f, 300f, 160f, 120f);
@@ -638,35 +638,35 @@ public static class SyntheticScan
 }
 ```
 
-- [ ] **Step 4: Eseguire i test e verificare che passino**
+- [ ] **Step 4: Run the tests and verify they pass**
 
 Run: `dotnet test tests/Scanner.Core.Tests --filter "FullyQualifiedName~SyntheticTests"`
-Expected: PASS (5 test).
+Expected: PASS (5 tests).
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add -A
-git commit -m "feat(core): tipi DepthFrame e generatore di scansioni sintetiche" -m "Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
+git commit -m "feat(core): DepthFrame types and synthetic scan generator" -m "Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 ```
 
 ---
 
-### Task 3: Volume TSDF sparso
+### Task 3: Sparse TSDF volume
 
 **Files:**
 - Create: `src/Scanner.Core/Fusion/TsdfVolume.cs`
 - Test: `tests/Scanner.Core.Tests/Fusion/TsdfVolumeTests.cs`
 
 **Interfaces:**
-- Consumes: `DepthFrame`, `CameraIntrinsics` (Task 2); `CameraPoses.LookAt`, `SyntheticDepthRenderer.Render`, `SphereSdf` (solo nei test).
-- Produces: `sealed class TsdfVolume(float voxelSize, float truncationDistance)` con
-  `float VoxelSize`, `float TruncationDistance`, `int BlockCount`, `IEnumerable<(int X, int Y, int Z)> AllocatedBlocks` (coordinate di blocco),
+- Consumes: `DepthFrame`, `CameraIntrinsics` (Task 2); `CameraPoses.LookAt`, `SyntheticDepthRenderer.Render`, `SphereSdf` (test only).
+- Produces: `sealed class TsdfVolume(float voxelSize, float truncationDistance)` with
+  `float VoxelSize`, `float TruncationDistance`, `int BlockCount`, `IEnumerable<(int X, int Y, int Z)> AllocatedBlocks` (block coordinates),
   `const int BlockSize = 8`, `Vector3 VoxelToWorld(int x, int y, int z)`,
-  `bool TryGet(int x, int y, int z, out float tsdf, out float weight)` (true solo se weight > 0),
+  `bool TryGet(int x, int y, int z, out float tsdf, out float weight)` (true only if weight > 0),
   `void Set(int x, int y, int z, float tsdf, float weight)`, `void Integrate(DepthFrame frame)`.
 
-- [ ] **Step 1: Scrivere i test che falliscono**
+- [ ] **Step 1: Write the failing tests**
 
 `tests/Scanner.Core.Tests/Fusion/TsdfVolumeTests.cs`:
 
@@ -706,21 +706,21 @@ public class TsdfVolumeTests
         volume.Integrate(frame);
 
         Assert.True(volume.BlockCount > 0);
-        Assert.True(volume.TryGet(0, 0, -12, out float outside, out _));  // 4 mm fuori dalla sfera
+        Assert.True(volume.TryGet(0, 0, -12, out float outside, out _));  // 4 mm outside the sphere
         Assert.Equal(0.667f, outside, 2);
-        Assert.True(volume.TryGet(0, 0, -8, out float inside, out _));    // 4 mm dentro la sfera
+        Assert.True(volume.TryGet(0, 0, -8, out float inside, out _));    // 4 mm inside the sphere
         Assert.Equal(-0.667f, inside, 2);
-        Assert.False(volume.TryGet(0, 0, 0, out _, out _));               // centro: oltre la troncatura
+        Assert.False(volume.TryGet(0, 0, 0, out _, out _));               // center: beyond truncation
     }
 }
 ```
 
-- [ ] **Step 2: Eseguire i test e verificare che falliscano**
+- [ ] **Step 2: Run the tests and verify they fail**
 
 Run: `dotnet test tests/Scanner.Core.Tests --filter "FullyQualifiedName~TsdfVolumeTests"`
-Expected: FAIL di compilazione — `TsdfVolume` inesistente.
+Expected: compilation FAILURE — `TsdfVolume` does not exist.
 
-- [ ] **Step 3: Implementare**
+- [ ] **Step 3: Implement**
 
 `src/Scanner.Core/Fusion/TsdfVolume.cs`:
 
@@ -731,9 +731,9 @@ using Scanner.Capture;
 namespace Scanner.Core.Fusion;
 
 /// <summary>
-/// Volume TSDF sparso: blocchi di 8³ voxel allocati solo vicino alla superficie osservata.
-/// Il voxel (x, y, z) ha centro in (x, y, z)·VoxelSize nel sistema mondo.
-/// Valori normalizzati in [-1, 1], positivi fuori dall'oggetto.
+/// Sparse TSDF volume: 8³-voxel blocks allocated only near the observed surface.
+/// Voxel (x, y, z) is centered at (x, y, z)·VoxelSize in the world frame.
+/// Values normalized to [-1, 1], positive outside the object.
 /// </summary>
 public sealed class TsdfVolume
 {
@@ -784,7 +784,7 @@ public sealed class TsdfVolume
     public void Integrate(DepthFrame frame)
     {
         if (!Matrix4x4.Invert(frame.CameraToWorld, out var worldToCamera))
-            throw new ArgumentException("Posa della camera non invertibile.", nameof(frame));
+            throw new ArgumentException("Camera pose is not invertible.", nameof(frame));
 
         var touched = AllocateBlocksNearSurface(frame);
         Parallel.ForEach(touched, key => UpdateBlock(key, _blocks[key], frame, worldToCamera));
@@ -864,21 +864,21 @@ public sealed class TsdfVolume
 }
 ```
 
-- [ ] **Step 4: Eseguire i test e verificare che passino**
+- [ ] **Step 4: Run the tests and verify they pass**
 
 Run: `dotnet test tests/Scanner.Core.Tests --filter "FullyQualifiedName~TsdfVolumeTests"`
-Expected: PASS (2 test).
+Expected: PASS (2 tests).
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add -A
-git commit -m "feat(core): volume TSDF sparso a blocchi" -m "Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
+git commit -m "feat(core): sparse block-based TSDF volume" -m "Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 ```
 
 ---
 
-### Task 4: Mesh con Naive Surface Nets
+### Task 4: Mesh with Naive Surface Nets
 
 **Files:**
 - Create: `src/Scanner.Core/Meshing/TriangleMesh.cs`, `src/Scanner.Core/Meshing/SurfaceNets.cs`
@@ -887,10 +887,10 @@ git commit -m "feat(core): volume TSDF sparso a blocchi" -m "Co-Authored-By: Cla
 **Interfaces:**
 - Consumes: `TsdfVolume` (Task 3).
 - Produces:
-  - `sealed class TriangleMesh` con `List<Vector3> Positions`, `List<Vector3> Normals` (per vertice, dal gradiente TSDF, uscenti), `List<int> Indices`, `int TriangleCount`, `Vector3 FaceNormal(int triangle)`, `void AddQuad(int a, int b, int c, int d)`.
-  - `static TriangleMesh SurfaceNets.Extract(TsdfVolume volume)` — triangoli con avvolgimento antiorario visto da fuori.
+  - `sealed class TriangleMesh` with `List<Vector3> Positions`, `List<Vector3> Normals` (per vertex, outward, from the TSDF gradient), `List<int> Indices`, `int TriangleCount`, `Vector3 FaceNormal(int triangle)`, `void AddQuad(int a, int b, int c, int d)`.
+  - `static TriangleMesh SurfaceNets.Extract(TsdfVolume volume)` — triangles wound counterclockwise as seen from outside.
 
-- [ ] **Step 1: Scrivere i test che falliscono**
+- [ ] **Step 1: Write the failing tests**
 
 `tests/Scanner.Core.Tests/Meshing/SurfaceNetsTests.cs`:
 
@@ -952,12 +952,12 @@ public class SurfaceNetsTests
 }
 ```
 
-- [ ] **Step 2: Eseguire i test e verificare che falliscano**
+- [ ] **Step 2: Run the tests and verify they fail**
 
 Run: `dotnet test tests/Scanner.Core.Tests --filter "FullyQualifiedName~SurfaceNetsTests"`
-Expected: FAIL di compilazione — `Scanner.Core.Meshing` inesistente.
+Expected: compilation FAILURE — `Scanner.Core.Meshing` does not exist.
 
-- [ ] **Step 3: Implementare**
+- [ ] **Step 3: Implement**
 
 `src/Scanner.Core/Meshing/TriangleMesh.cs`:
 
@@ -969,7 +969,7 @@ namespace Scanner.Core.Meshing;
 public sealed class TriangleMesh
 {
     public List<Vector3> Positions { get; } = new();
-    /// <summary>Normali per vertice, uscenti dal solido.</summary>
+    /// <summary>Per-vertex normals, pointing out of the solid.</summary>
     public List<Vector3> Normals { get; } = new();
     public List<int> Indices { get; } = new();
 
@@ -983,7 +983,7 @@ public sealed class TriangleMesh
         return Vector3.Normalize(Vector3.Cross(b - a, c - a));
     }
 
-    /// <summary>Aggiunge il quad a-b-c-d come due triangoli con lo stesso avvolgimento.</summary>
+    /// <summary>Adds the quad a-b-c-d as two triangles with the same winding.</summary>
     public void AddQuad(int a, int b, int c, int d)
     {
         Indices.AddRange([a, b, c, a, c, d]);
@@ -1000,10 +1000,10 @@ using Scanner.Core.Fusion;
 namespace Scanner.Core.Meshing;
 
 /// <summary>
-/// Naive Surface Nets: un vertice per cella attraversata dalla superficie (media delle intersezioni
-/// sugli spigoli), un quad per ogni spigolo di voxel con cambio di segno.
-/// La cella (x, y, z) ha come angoli i voxel da (x, y, z) a (x+1, y+1, z+1);
-/// l'angolo i ha offset (i &amp; 1, (i &gt;&gt; 1) &amp; 1, (i &gt;&gt; 2) &amp; 1).
+/// Naive Surface Nets: one vertex per cell crossed by the surface (average of the intersections
+/// on the edges), one quad for each voxel edge with a sign change.
+/// Cell (x, y, z) has as its corners the voxels from (x, y, z) to (x+1, y+1, z+1);
+/// corner i has offset (i &amp; 1, (i &gt;&gt; 1) &amp; 1, (i &gt;&gt; 2) &amp; 1).
 /// </summary>
 public static class SurfaceNets
 {
@@ -1033,7 +1033,7 @@ public static class SurfaceNets
         foreach (var ((x, y, z), _) in cells)
         {
             volume.TryGet(x, y, z, out float v0, out _);
-            // Ordine delle celle attorno allo spigolo: antiorario visto dalla direzione positiva dell'asse.
+            // Order of cells around the edge: counterclockwise as seen from the positive axis direction.
             if (volume.TryGet(x + 1, y, z, out float vx, out _))
                 EmitQuad(mesh, cells, v0, vx, (x, y - 1, z - 1), (x, y, z - 1), (x, y, z), (x, y - 1, z));
             if (volume.TryGet(x, y + 1, z, out float vy, out _))
@@ -1052,7 +1052,7 @@ public static class SurfaceNets
         if (!cells.TryGetValue(c0, out int i0) || !cells.TryGetValue(c1, out int i1)
             || !cells.TryGetValue(c2, out int i2) || !cells.TryGetValue(c3, out int i3)) return;
 
-        // v0 dentro e v1 fuori: la normale uscente ha il verso positivo dell'asse.
+        // v0 inside and v1 outside: the outward normal has the positive axis direction.
         if (v0 < 0) mesh.AddQuad(i0, i1, i2, i3);
         else mesh.AddQuad(i0, i3, i2, i1);
     }
@@ -1093,7 +1093,7 @@ public static class SurfaceNets
         return (new Vector3(x, y, z) + sum / count) * voxelSize;
     }
 
-    // Gradiente dell'interpolazione trilineare al centro della cella: punta verso l'esterno.
+    // Gradient of the trilinear interpolation at the cell center: points outward.
     private static Vector3 CellNormal(float[] c)
     {
         var g = new Vector3(
@@ -1107,21 +1107,21 @@ public static class SurfaceNets
 }
 ```
 
-- [ ] **Step 4: Eseguire i test e verificare che passino**
+- [ ] **Step 4: Run the tests and verify they pass**
 
 Run: `dotnet test tests/Scanner.Core.Tests --filter "FullyQualifiedName~SurfaceNetsTests"`
-Expected: PASS (2 test).
+Expected: PASS (2 tests).
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add -A
-git commit -m "feat(core): estrazione mesh con Naive Surface Nets" -m "Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
+git commit -m "feat(core): mesh extraction with Naive Surface Nets" -m "Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 ```
 
 ---
 
-### Task 5: Primitive e RANSAC piani/cilindri
+### Task 5: Primitives and plane/cylinder RANSAC
 
 **Files:**
 - Create: `src/Scanner.Core/Shapes/Primitives.cs`
@@ -1132,15 +1132,15 @@ git commit -m "feat(core): estrazione mesh con Naive Surface Nets" -m "Co-Author
 - Consumes: `Basis`, `Linear3`, `SymmetricEigen3` (Task 1); `TriangleMesh` (Task 4).
 - Produces:
   - `abstract record Primitive`;
-    `sealed record PlanePrimitive(Vector3 Normal, float D) : Primitive` (piano `Normal·x = D`, normale uscente) con `float SignedDistance(Vector3 p)`;
-    `sealed record CylinderPrimitive(Vector3 AxisPoint, Vector3 Axis, float Radius, bool IsHole) : Primitive` con `Vector3 RadialVector(Vector3 p)`, `float Distance(Vector3 p)`. `IsHole` = normali verso l'asse.
-  - `sealed record PointCloud(Vector3[] Points, Vector3[] Normals)` con `int Count`, `static PointCloud FromMesh(TriangleMesh mesh)`.
+    `sealed record PlanePrimitive(Vector3 Normal, float D) : Primitive` (plane `Normal·x = D`, outward normal) with `float SignedDistance(Vector3 p)`;
+    `sealed record CylinderPrimitive(Vector3 AxisPoint, Vector3 Axis, float Radius, bool IsHole) : Primitive` with `Vector3 RadialVector(Vector3 p)`, `float Distance(Vector3 p)`. `IsHole` = normals point toward the axis.
+  - `sealed record PointCloud(Vector3[] Points, Vector3[] Normals)` with `int Count`, `static PointCloud FromMesh(TriangleMesh mesh)`.
   - `sealed record RansacOptions(float DistanceThreshold, float NormalThresholdDegrees, int MinInliers, int IterationsPerShape = 1500, int MaxShapes = 20, float MaxCylinderRadius = 0.5f, int Seed = 1)`.
   - `sealed record DetectedShape(Primitive Primitive, int[] InlierIndices)`.
   - `static IReadOnlyList<DetectedShape> RansacDetector.Detect(PointCloud cloud, RansacOptions options)`.
   - `static Primitive? PrimitiveFitter.Refine(Primitive shape, PointCloud cloud, IReadOnlyList<int> indices)`, `FitPlane(...)`, `FitCylinder(...)`.
 
-- [ ] **Step 1: Scrivere i dati di test e i test che falliscono**
+- [ ] **Step 1: Write the test data and the failing tests**
 
 `tests/Scanner.Core.Tests/Segmentation/SampleClouds.cs`:
 
@@ -1151,7 +1151,7 @@ using Scanner.Core.Segmentation;
 
 namespace Scanner.Core.Tests.Segmentation;
 
-/// <summary>Nuvole di punti campionate direttamente su forme note, con normali uscenti esatte.</summary>
+/// <summary>Point clouds sampled directly on known shapes, with exact outward normals.</summary>
 internal static class SampleClouds
 {
     public static PointCloud Cube(float half, float spacing, float noise, int seed)
@@ -1268,12 +1268,12 @@ public class RansacDetectorTests
 }
 ```
 
-- [ ] **Step 2: Eseguire i test e verificare che falliscano**
+- [ ] **Step 2: Run the tests and verify they fail**
 
 Run: `dotnet test tests/Scanner.Core.Tests --filter "FullyQualifiedName~RansacDetectorTests"`
-Expected: FAIL di compilazione — `Scanner.Core.Segmentation` / `Scanner.Core.Shapes` inesistenti.
+Expected: compilation FAILURE — `Scanner.Core.Segmentation` / `Scanner.Core.Shapes` do not exist.
 
-- [ ] **Step 3: Implementare le primitive e la nuvola di punti**
+- [ ] **Step 3: Implement the primitives and the point cloud**
 
 `src/Scanner.Core/Shapes/Primitives.cs`:
 
@@ -1284,14 +1284,14 @@ namespace Scanner.Core.Shapes;
 
 public abstract record Primitive;
 
-/// <summary>Piano Normal·x = D, con Normal unitaria uscente dal solido.</summary>
+/// <summary>Plane Normal·x = D, with Normal a unit vector pointing out of the solid.</summary>
 public sealed record PlanePrimitive(Vector3 Normal, float D) : Primitive
 {
     public float SignedDistance(Vector3 p) => Vector3.Dot(Normal, p) - D;
 }
 
-/// <summary>Cilindro infinito con asse per AxisPoint e direzione Axis (unitaria).
-/// IsHole è true quando le normali di superficie puntano verso l'asse (foro).</summary>
+/// <summary>Infinite cylinder with axis through AxisPoint in direction Axis (unit vector).
+/// IsHole is true when the surface normals point toward the axis (a hole).</summary>
 public sealed record CylinderPrimitive(Vector3 AxisPoint, Vector3 Axis, float Radius, bool IsHole) : Primitive
 {
     public Vector3 RadialVector(Vector3 p)
@@ -1332,7 +1332,7 @@ public sealed record RansacOptions(
 public sealed record DetectedShape(Primitive Primitive, int[] InlierIndices);
 ```
 
-- [ ] **Step 4: Implementare il fitting ai minimi quadrati**
+- [ ] **Step 4: Implement the least-squares fitting**
 
 `src/Scanner.Core/Segmentation/PrimitiveFitter.cs`:
 
@@ -1352,7 +1352,7 @@ public static class PrimitiveFitter
         _ => null,
     };
 
-    /// <summary>Piano ai minimi quadrati (autovettore minimo della covarianza), orientato come <paramref name="orientation"/>.</summary>
+    /// <summary>Least-squares plane (minimum eigenvector of the covariance), oriented like <paramref name="orientation"/>.</summary>
     public static PlanePrimitive? FitPlane(PointCloud cloud, IReadOnlyList<int> indices, Vector3 orientation)
     {
         if (indices.Count < 3) return null;
@@ -1365,7 +1365,7 @@ public static class PrimitiveFitter
         return new PlanePrimitive(normal, Vector3.Dot(normal, centroid));
     }
 
-    /// <summary>Asse = direzione ortogonale a tutte le normali; sezione = cerchio di Kåsa sui punti proiettati.</summary>
+    /// <summary>Axis = direction orthogonal to all normals; cross-section = Kåsa circle fit on the projected points.</summary>
     public static CylinderPrimitive? FitCylinder(PointCloud cloud, IReadOnlyList<int> indices, Vector3 axisHint)
     {
         if (indices.Count < 6) return null;
@@ -1412,7 +1412,7 @@ public static class PrimitiveFitter
 }
 ```
 
-- [ ] **Step 5: Implementare il RANSAC**
+- [ ] **Step 5: Implement RANSAC**
 
 `src/Scanner.Core/Segmentation/RansacDetector.cs`:
 
@@ -1424,8 +1424,8 @@ using Scanner.Core.Shapes;
 namespace Scanner.Core.Segmentation;
 
 /// <summary>
-/// RANSAC sequenziale: a ogni giro sceglie la primitiva (piano o cilindro) con più inlier fra i punti
-/// rimasti, la raffina ai minimi quadrati e ne rimuove gli inlier.
+/// Sequential RANSAC: each round picks the primitive (plane or cylinder) with the most inliers among the
+/// remaining points, refines it via least squares, and removes its inliers.
 /// </summary>
 public static class RansacDetector
 {
@@ -1506,7 +1506,7 @@ public static class RansacDetector
         return new PlanePrimitive(n, Vector3.Dot(n, cloud.Points[i]));
     }
 
-    // Due punti con normale: asse = n1 × n2; il centro della sezione è l'intersezione delle normali proiettate.
+    // Two points with normals: axis = n1 × n2; the cross-section center is the intersection of the projected normals.
     private static CylinderPrimitive? CylinderFromSample(PointCloud cloud, List<int> remaining, Random rng, RansacOptions options)
     {
         int i = remaining[rng.Next(remaining.Count)];
@@ -1540,24 +1540,24 @@ public static class RansacDetector
 }
 ```
 
-- [ ] **Step 6: Eseguire i test e verificare che passino**
+- [ ] **Step 6: Run the tests and verify they pass**
 
 Run: `dotnet test tests/Scanner.Core.Tests --filter "FullyQualifiedName~RansacDetectorTests"`
-Expected: PASS (2 test).
+Expected: PASS (2 tests).
 
-- [ ] **Step 7: Eseguire tutta la suite Core e fare commit**
+- [ ] **Step 7: Run the whole Core suite and commit**
 
 Run: `dotnet test tests/Scanner.Core.Tests`
-Expected: PASS (tutti).
+Expected: PASS (all).
 
 ```bash
 git add -A
-git commit -m "feat(core): primitive e RANSAC piani/cilindri con raffinamento" -m "Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
+git commit -m "feat(core): primitives and plane/cylinder RANSAC with refinement" -m "Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 ```
 
 ---
 
-### Task 6: Modello B-Rep, validatore e poliedro convesso
+### Task 6: B-Rep model, validator and convex polyhedron
 
 **Files:**
 - Create: `src/Scanner.Brep/Model/BrepModel.cs`, `src/Scanner.Brep/Model/BrepValidator.cs`
@@ -1568,17 +1568,17 @@ git commit -m "feat(core): primitive e RANSAC piani/cilindri con raffinamento" -
 - Consumes: `PlanePrimitive` (Task 5), `Basis`, `Linear3` (Task 1).
 - Produces:
   - `sealed class BrepVertex(Vector3 position)` → `Position`.
-  - `abstract record BrepCurve`; `sealed record LineCurve(Vector3 Origin, Vector3 Direction)`; `sealed record CircleCurve(Vector3 Center, Vector3 Axis, Vector3 RefDirection, float Radius)` (antioraria attorno ad `Axis`).
+  - `abstract record BrepCurve`; `sealed record LineCurve(Vector3 Origin, Vector3 Direction)`; `sealed record CircleCurve(Vector3 Center, Vector3 Axis, Vector3 RefDirection, float Radius)` (counterclockwise around `Axis`).
   - `sealed class BrepEdge(BrepVertex start, BrepVertex end, BrepCurve curve)` → `Start`, `End`, `Curve`.
   - `readonly record struct OrientedEdge(BrepEdge Edge, bool SameSense)` → `StartVertex`, `EndVertex`.
   - `sealed class BrepLoop(IReadOnlyList<OrientedEdge> edges)` → `Edges`.
-  - `abstract record BrepSurface`; `sealed record PlaneSurface(Vector3 Origin, Vector3 Normal, Vector3 RefDirection)`; `sealed record CylinderSurface(Vector3 Origin, Vector3 Axis, Vector3 RefDirection, float Radius)` (normale lontana dall'asse).
-  - `sealed class BrepFace(BrepSurface surface, IReadOnlyList<BrepLoop> loops, bool sameSense)` → `Surface`, `Loops` (per le facce piane `Loops[0]` è il contorno esterno), `SameSense`.
+  - `abstract record BrepSurface`; `sealed record PlaneSurface(Vector3 Origin, Vector3 Normal, Vector3 RefDirection)`; `sealed record CylinderSurface(Vector3 Origin, Vector3 Axis, Vector3 RefDirection, float Radius)` (normal pointing away from the axis).
+  - `sealed class BrepFace(BrepSurface surface, IReadOnlyList<BrepLoop> loops, bool sameSense)` → `Surface`, `Loops` (for planar faces `Loops[0]` is the outer boundary), `SameSense`.
   - `sealed class BrepSolid(IReadOnlyList<BrepFace> faces)` → `Faces`, `IReadOnlyList<BrepEdge> DistinctEdges()`, `IReadOnlyList<BrepVertex> DistinctVertices()`.
-  - `static IReadOnlyList<string> BrepValidator.Validate(BrepSolid solid)` — lista vuota se valido.
-  - `static BrepSolid ConvexPolyhedronBuilder.Build(IReadOnlyList<PlanePrimitive> planes, float tolerance)` — lancia `InvalidOperationException` se degenere.
+  - `static IReadOnlyList<string> BrepValidator.Validate(BrepSolid solid)` — empty list if valid.
+  - `static BrepSolid ConvexPolyhedronBuilder.Build(IReadOnlyList<PlanePrimitive> planes, float tolerance)` — throws `InvalidOperationException` if degenerate.
 
-- [ ] **Step 1: Scrivere i test che falliscono**
+- [ ] **Step 1: Write the failing tests**
 
 `tests/Scanner.Brep.Tests/Builders/ConvexPolyhedronBuilderTests.cs`:
 
@@ -1650,12 +1650,12 @@ public class ConvexPolyhedronBuilderTests
 }
 ```
 
-- [ ] **Step 2: Eseguire i test e verificare che falliscano**
+- [ ] **Step 2: Run the tests and verify they fail**
 
 Run: `dotnet test tests/Scanner.Brep.Tests`
-Expected: FAIL di compilazione — `Scanner.Brep.Builders` / `Scanner.Brep.Model` inesistenti.
+Expected: compilation FAILURE — `Scanner.Brep.Builders` / `Scanner.Brep.Model` do not exist.
 
-- [ ] **Step 3: Implementare il modello**
+- [ ] **Step 3: Implement the model**
 
 `src/Scanner.Brep/Model/BrepModel.cs`:
 
@@ -1671,10 +1671,10 @@ public sealed class BrepVertex(Vector3 position)
 
 public abstract record BrepCurve;
 
-/// <summary>Retta per Origin con direzione unitaria Direction.</summary>
+/// <summary>Line through Origin with unit direction Direction.</summary>
 public sealed record LineCurve(Vector3 Origin, Vector3 Direction) : BrepCurve;
 
-/// <summary>Circonferenza nel piano ortogonale ad Axis, percorsa in senso antiorario attorno ad Axis a partire da RefDirection.</summary>
+/// <summary>Circle in the plane orthogonal to Axis, traversed counterclockwise around Axis starting from RefDirection.</summary>
 public sealed record CircleCurve(Vector3 Center, Vector3 Axis, Vector3 RefDirection, float Radius) : BrepCurve;
 
 public sealed class BrepEdge(BrepVertex start, BrepVertex end, BrepCurve curve)
@@ -1690,7 +1690,7 @@ public readonly record struct OrientedEdge(BrepEdge Edge, bool SameSense)
     public BrepVertex EndVertex => SameSense ? Edge.End : Edge.Start;
 }
 
-/// <summary>Ciclo chiuso di spigoli orientati; l'interno della faccia sta a sinistra guardando dalla normale della faccia.</summary>
+/// <summary>Closed cycle of oriented edges; the face interior is on the left when looking along the face normal.</summary>
 public sealed class BrepLoop(IReadOnlyList<OrientedEdge> edges)
 {
     public IReadOnlyList<OrientedEdge> Edges { get; } = edges;
@@ -1700,11 +1700,11 @@ public abstract record BrepSurface;
 
 public sealed record PlaneSurface(Vector3 Origin, Vector3 Normal, Vector3 RefDirection) : BrepSurface;
 
-/// <summary>Superficie cilindrica; la sua normale punta lontano dall'asse.</summary>
+/// <summary>Cylindrical surface; its normal points away from the axis.</summary>
 public sealed record CylinderSurface(Vector3 Origin, Vector3 Axis, Vector3 RefDirection, float Radius) : BrepSurface;
 
-/// <summary>Faccia delimitata da uno o più loop; per le facce piane Loops[0] è il contorno esterno.
-/// SameSense = false inverte la normale della superficie.</summary>
+/// <summary>Face bounded by one or more loops; for planar faces Loops[0] is the outer boundary.
+/// SameSense = false flips the surface normal.</summary>
 public sealed class BrepFace(BrepSurface surface, IReadOnlyList<BrepLoop> loops, bool sameSense)
 {
     public BrepSurface Surface { get; } = surface;
@@ -1729,7 +1729,7 @@ public sealed class BrepSolid(IReadOnlyList<BrepFace> faces)
 ```csharp
 namespace Scanner.Brep.Model;
 
-/// <summary>Controlli topologici minimi per un solido manifold chiuso.</summary>
+/// <summary>Minimal topological checks for a closed manifold solid.</summary>
 public static class BrepValidator
 {
     public static IReadOnlyList<string> Validate(BrepSolid solid)
@@ -1744,7 +1744,7 @@ public static class BrepValidator
             loopCount++;
             if (loop.Edges.Count == 0)
             {
-                errors.Add($"Faccia {f}: loop vuoto.");
+                errors.Add($"Face {f}: empty loop.");
                 continue;
             }
             for (int i = 0; i < loop.Edges.Count; i++)
@@ -1752,7 +1752,7 @@ public static class BrepValidator
                 var current = loop.Edges[i];
                 var next = loop.Edges[(i + 1) % loop.Edges.Count];
                 if (current.EndVertex != next.StartVertex)
-                    errors.Add($"Faccia {f}: loop non chiuso dopo lo spigolo {i}.");
+                    errors.Add($"Face {f}: loop not closed after edge {i}.");
 
                 uses.TryGetValue(current.Edge, out var count);
                 uses[current.Edge] = current.SameSense ? (count.Forward + 1, count.Backward) : (count.Forward, count.Backward + 1);
@@ -1761,21 +1761,21 @@ public static class BrepValidator
 
         foreach (var (_, count) in uses)
             if (count.Forward != 1 || count.Backward != 1)
-                errors.Add($"Spigolo usato {count.Forward} volte in avanti e {count.Backward} all'indietro (atteso 1 e 1).");
+                errors.Add($"Edge used {count.Forward} times forward and {count.Backward} backward (expected 1 and 1).");
 
         int vertices = solid.DistinctVertices().Count;
         int faces = solid.Faces.Count;
-        // Eulero-Poincaré: V − E + F − (L − F) = 2(S − G), con S = 1 guscio.
+        // Euler-Poincaré: V − E + F − (L − F) = 2(S − G), with S = 1 shell.
         int chi = vertices - uses.Count + faces - (loopCount - faces);
         if (chi > 2 || chi % 2 != 0)
-            errors.Add($"Caratteristica di Eulero-Poincaré non valida: {chi}.");
+            errors.Add($"Invalid Euler-Poincaré characteristic: {chi}.");
 
         return errors;
     }
 }
 ```
 
-- [ ] **Step 4: Implementare il costruttore del poliedro convesso**
+- [ ] **Step 4: Implement the convex polyhedron builder**
 
 `src/Scanner.Brep/Builders/ConvexPolyhedronBuilder.cs`:
 
@@ -1787,7 +1787,7 @@ using Scanner.Core.Shapes;
 
 namespace Scanner.Brep.Builders;
 
-/// <summary>Solido convesso come intersezione dei semispazi Normal·x ≤ D.</summary>
+/// <summary>Convex solid as the intersection of the half-spaces Normal·x ≤ D.</summary>
 public static class ConvexPolyhedronBuilder
 {
     private const float DuplicateAngleDegrees = 5f;
@@ -1795,10 +1795,10 @@ public static class ConvexPolyhedronBuilder
     public static BrepSolid Build(IReadOnlyList<PlanePrimitive> planes, float tolerance)
     {
         var unique = MergeDuplicates(planes, tolerance);
-        if (unique.Count < 4) throw new InvalidOperationException($"Servono almeno 4 piani distinti, trovati {unique.Count}.");
+        if (unique.Count < 4) throw new InvalidOperationException($"At least 4 distinct planes are required, found {unique.Count}.");
 
         var points = IntersectionVertices(unique, tolerance);
-        if (points.Count < 4) throw new InvalidOperationException("Poliedro degenere: meno di 4 vertici.");
+        if (points.Count < 4) throw new InvalidOperationException("Degenerate polyhedron: fewer than 4 vertices.");
 
         var vertices = points.Select(p => new BrepVertex(p)).ToList();
         var edges = new Dictionary<(int, int), BrepEdge>();
@@ -1813,7 +1813,7 @@ public static class ConvexPolyhedronBuilder
 
             var centroid = onPlane.Aggregate(Vector3.Zero, (sum, i) => sum + points[i]) / onPlane.Count;
             var (u, v) = Basis.Orthonormal(plane.Normal);
-            // Angolo crescente nella base (u, v) con u × v = normale: senso antiorario visto da fuori.
+            // Increasing angle in the (u, v) basis with u × v = normal: counterclockwise as seen from outside.
             var ordered = onPlane
                 .OrderBy(i => MathF.Atan2(Vector3.Dot(points[i] - centroid, v), Vector3.Dot(points[i] - centroid, u)))
                 .ToList();
@@ -1877,33 +1877,33 @@ public static class ConvexPolyhedronBuilder
 }
 ```
 
-Nota: la soglia di merge in `D` è `3·tolerance + 1 mm` perché due piani RANSAC della stessa faccia possono differire di circa una soglia di distanza; `tolerance` (0,1 mm) serve invece per i vertici.
+Note: the merge threshold on `D` is `3·tolerance + 1 mm` because two RANSAC planes from the same face can differ by roughly one distance threshold; `tolerance` (0.1 mm) is instead used for vertices.
 
-- [ ] **Step 5: Eseguire i test e verificare che passino**
+- [ ] **Step 5: Run the tests and verify they pass**
 
 Run: `dotnet test tests/Scanner.Brep.Tests`
-Expected: PASS (4 test).
+Expected: PASS (4 tests).
 
 - [ ] **Step 6: Commit**
 
 ```bash
 git add -A
-git commit -m "feat(brep): modello B-Rep, validatore topologico e poliedro convesso" -m "Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
+git commit -m "feat(brep): B-Rep model, topology validator and convex polyhedron" -m "Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 ```
 
 ---
 
-### Task 7: Costruttore del tubo (cilindro con foro coassiale)
+### Task 7: Tube builder (cylinder with coaxial hole)
 
 **Files:**
 - Create: `src/Scanner.Brep/Builders/TubeBuilder.cs`
 - Test: `tests/Scanner.Brep.Tests/Builders/TubeBuilderTests.cs`
 
 **Interfaces:**
-- Consumes: modello B-Rep e `BrepValidator` (Task 6), `Basis` (Task 1).
-- Produces: `static BrepSolid TubeBuilder.Build(Vector3 axisPoint, Vector3 axis, float outerRadius, float? innerRadius, float zBottom, float zTop)` — `z` misurate lungo `axis` a partire da `axisPoint`; facce in ordine: esterno, [foro], tappo inferiore, tappo superiore.
+- Consumes: the B-Rep model and `BrepValidator` (Task 6), `Basis` (Task 1).
+- Produces: `static BrepSolid TubeBuilder.Build(Vector3 axisPoint, Vector3 axis, float outerRadius, float? innerRadius, float zBottom, float zTop)` — `z` measured along `axis` starting from `axisPoint`; faces in order: outer, [hole], bottom cap, top cap.
 
-- [ ] **Step 1: Scrivere i test che falliscono**
+- [ ] **Step 1: Write the failing tests**
 
 `tests/Scanner.Brep.Tests/Builders/TubeBuilderTests.cs`:
 
@@ -1951,12 +1951,12 @@ public class TubeBuilderTests
 }
 ```
 
-- [ ] **Step 2: Eseguire i test e verificare che falliscano**
+- [ ] **Step 2: Run the tests and verify they fail**
 
 Run: `dotnet test tests/Scanner.Brep.Tests --filter "FullyQualifiedName~TubeBuilderTests"`
-Expected: FAIL di compilazione — `TubeBuilder` inesistente.
+Expected: compilation FAILURE — `TubeBuilder` does not exist.
 
-- [ ] **Step 3: Implementare**
+- [ ] **Step 3: Implement**
 
 `src/Scanner.Brep/Builders/TubeBuilder.cs`:
 
@@ -1968,18 +1968,18 @@ using Scanner.Core.LinearAlgebra;
 namespace Scanner.Brep.Builders;
 
 /// <summary>
-/// Cilindro esterno con foro coassiale opzionale e due tappi piani ortogonali all'asse.
-/// Ogni circonferenza è un unico spigolo chiuso (vertice iniziale = finale), percorso antiorario attorno all'asse.
-/// Orientamenti (interno della faccia a sinistra guardando dalla normale della faccia):
-/// esterno: basso +, alto −; foro (SameSense=false): basso −, alto +;
-/// tappo inferiore (normale −asse): esterno −, foro +; tappo superiore (normale +asse): esterno +, foro −.
+/// Outer cylinder with an optional coaxial hole and two planar caps orthogonal to the axis.
+/// Each circle is a single closed edge (start vertex = end vertex), traversed counterclockwise around the axis.
+/// Orientations (face interior on the left when looking along the face normal):
+/// outer: bottom +, top −; hole (SameSense=false): bottom −, top +;
+/// bottom cap (normal −axis): outer −, hole +; top cap (normal +axis): outer +, hole −.
 /// </summary>
 public static class TubeBuilder
 {
     public static BrepSolid Build(Vector3 axisPoint, Vector3 axis, float outerRadius, float? innerRadius, float zBottom, float zTop)
     {
-        if (zTop <= zBottom) throw new ArgumentException("zTop deve essere maggiore di zBottom.");
-        if (innerRadius is { } r && (r <= 0 || r >= outerRadius)) throw new ArgumentException("Raggio del foro non valido.");
+        if (zTop <= zBottom) throw new ArgumentException("zTop must be greater than zBottom.");
+        if (innerRadius is { } r && (r <= 0 || r >= outerRadius)) throw new ArgumentException("Invalid hole radius.");
 
         var a = Vector3.Normalize(axis);
         var (refDirection, _) = Basis.Orthonormal(a);
@@ -2023,31 +2023,31 @@ public static class TubeBuilder
 }
 ```
 
-- [ ] **Step 4: Eseguire i test e verificare che passino**
+- [ ] **Step 4: Run the tests and verify they pass**
 
 Run: `dotnet test tests/Scanner.Brep.Tests --filter "FullyQualifiedName~TubeBuilderTests"`
-Expected: PASS (3 test).
+Expected: PASS (3 tests).
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add -A
-git commit -m "feat(brep): costruttore tubo/cilindro coassiale" -m "Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
+git commit -m "feat(brep): coaxial tube/cylinder builder" -m "Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 ```
 
 ---
 
-### Task 8: Writer STEP AP214
+### Task 8: STEP AP214 writer
 
 **Files:**
 - Create: `src/Scanner.Brep/Step/StepWriter.cs`
 - Test: `tests/Scanner.Brep.Tests/Step/StepSyntaxChecker.cs`, `tests/Scanner.Brep.Tests/Step/StepWriterTests.cs`
 
 **Interfaces:**
-- Consumes: modello B-Rep (Task 6), `ConvexPolyhedronBuilder` (Task 6), `TubeBuilder` (Task 7).
-- Produces: `static string StepWriter.Write(BrepSolid solid, string productName, DateTime timestampUtc)` — file ISO 10303-21 completo, coordinate in mm.
+- Consumes: the B-Rep model (Task 6), `ConvexPolyhedronBuilder` (Task 6), `TubeBuilder` (Task 7).
+- Produces: `static string StepWriter.Write(BrepSolid solid, string productName, DateTime timestampUtc)` — complete ISO 10303-21 file, coordinates in mm.
 
-- [ ] **Step 1: Scrivere il controllore di sintassi e i test che falliscono**
+- [ ] **Step 1: Write the syntax checker and the failing tests**
 
 `tests/Scanner.Brep.Tests/Step/StepSyntaxChecker.cs`:
 
@@ -2056,28 +2056,28 @@ using System.Text.RegularExpressions;
 
 namespace Scanner.Brep.Tests.Step;
 
-/// <summary>Controlli strutturali su un file STEP: header, id univoci, riferimenti risolti, righe terminate.</summary>
+/// <summary>Structural checks on a STEP file: header, unique ids, resolved references, terminated lines.</summary>
 internal static class StepSyntaxChecker
 {
     public static IReadOnlyList<string> Check(string step)
     {
         var errors = new List<string>();
         var text = step.Trim();
-        if (!text.StartsWith("ISO-10303-21;")) errors.Add("Manca l'intestazione ISO-10303-21.");
-        if (!text.EndsWith("END-ISO-10303-21;")) errors.Add("Manca la chiusura END-ISO-10303-21.");
-        if (!text.Contains("FILE_SCHEMA(('AUTOMOTIVE_DESIGN { 1 0 10303 214 1 1 1 1 }'));")) errors.Add("Schema AP214 mancante.");
+        if (!text.StartsWith("ISO-10303-21;")) errors.Add("Missing ISO-10303-21 header.");
+        if (!text.EndsWith("END-ISO-10303-21;")) errors.Add("Missing END-ISO-10303-21 closing.");
+        if (!text.Contains("FILE_SCHEMA(('AUTOMOTIVE_DESIGN { 1 0 10303 214 1 1 1 1 }'));")) errors.Add("Missing AP214 schema.");
 
         var defined = new HashSet<int>();
         foreach (Match m in Regex.Matches(step, @"^#(\d+)=", RegexOptions.Multiline))
-            if (!defined.Add(int.Parse(m.Groups[1].Value))) errors.Add($"Id duplicato #{m.Groups[1].Value}.");
+            if (!defined.Add(int.Parse(m.Groups[1].Value))) errors.Add($"Duplicate id #{m.Groups[1].Value}.");
 
         foreach (Match m in Regex.Matches(step, @"#(\d+)"))
-            if (!defined.Contains(int.Parse(m.Groups[1].Value))) errors.Add($"Riferimento non definito #{m.Groups[1].Value}.");
+            if (!defined.Contains(int.Parse(m.Groups[1].Value))) errors.Add($"Undefined reference #{m.Groups[1].Value}.");
 
         foreach (var line in step.Split('\n').Where(l => l.StartsWith('#')))
         {
-            if (!line.TrimEnd().EndsWith(';')) errors.Add($"Riga non terminata: {line}");
-            if (line.Count(c => c == '(') != line.Count(c => c == ')')) errors.Add($"Parentesi sbilanciate: {line}");
+            if (!line.TrimEnd().EndsWith(';')) errors.Add($"Unterminated line: {line}");
+            if (line.Count(c => c == '(') != line.Count(c => c == ')')) errors.Add($"Unbalanced parentheses: {line}");
         }
         return errors;
     }
@@ -2151,19 +2151,19 @@ public class StepWriterTests
     {
         var solid = TubeBuilder.Build(Vector3.Zero, Vector3.UnitZ, 0.02f, null, 0f, 0.01f);
 
-        var step = StepWriter.Write(solid, "l'anello", Timestamp);
+        var step = StepWriter.Write(solid, "user's ring", Timestamp);
 
-        Assert.Contains("PRODUCT('l''anello','l''anello'", step);
+        Assert.Contains("PRODUCT('user''s ring','user''s ring'", step);
     }
 }
 ```
 
-- [ ] **Step 2: Eseguire i test e verificare che falliscano**
+- [ ] **Step 2: Run the tests and verify they fail**
 
 Run: `dotnet test tests/Scanner.Brep.Tests --filter "FullyQualifiedName~StepWriterTests"`
-Expected: FAIL di compilazione — `Scanner.Brep.Step` inesistente.
+Expected: compilation FAILURE — `Scanner.Brep.Step` does not exist.
 
-- [ ] **Step 3: Implementare**
+- [ ] **Step 3: Implement**
 
 `src/Scanner.Brep/Step/StepWriter.cs`:
 
@@ -2175,7 +2175,7 @@ using Scanner.Brep.Model;
 
 namespace Scanner.Brep.Step;
 
-/// <summary>Scrive un <see cref="BrepSolid"/> come file STEP AP214 (ISO 10303-21) in millimetri.</summary>
+/// <summary>Writes a <see cref="BrepSolid"/> as a STEP AP214 file (ISO 10303-21) in millimeters.</summary>
 public sealed class StepWriter
 {
     private const double MetersToMillimeters = 1000.0;
@@ -2284,14 +2284,14 @@ public sealed class StepWriter
     {
         LineCurve line => Add($"LINE('',#{WritePoint(line.Origin)},#{Add($"VECTOR('',#{WriteDirection(line.Direction)},1.0)")})"),
         CircleCurve circle => Add($"CIRCLE('',#{WriteAxis(circle.Center, circle.Axis, circle.RefDirection)},{Length(circle.Radius)})"),
-        _ => throw new NotSupportedException($"Curva non supportata: {curve.GetType().Name}"),
+        _ => throw new NotSupportedException($"Unsupported curve: {curve.GetType().Name}"),
     };
 
     private int WriteSurface(BrepSurface surface) => surface switch
     {
         PlaneSurface plane => Add($"PLANE('',#{WriteAxis(plane.Origin, plane.Normal, plane.RefDirection)})"),
         CylinderSurface cylinder => Add($"CYLINDRICAL_SURFACE('',#{WriteAxis(cylinder.Origin, cylinder.Axis, cylinder.RefDirection)},{Length(cylinder.Radius)})"),
-        _ => throw new NotSupportedException($"Superficie non supportata: {surface.GetType().Name}"),
+        _ => throw new NotSupportedException($"Unsupported surface: {surface.GetType().Name}"),
     };
 
     private int WriteAxis(Vector3 location, Vector3 axis, Vector3 refDirection) =>
@@ -2319,7 +2319,7 @@ public sealed class StepWriter
 
     private static string Length(float meters) => Real(meters * MetersToMillimeters);
 
-    // Arrotondamento a 1e-6 (nm per le lunghezze) per evitare rumore float come 19.9999995.
+    // Rounding to 1e-6 (nm for lengths) to avoid float noise like 19.9999995.
     private static string Real(double value) =>
         Math.Round(value, 6).ToString("0.0#####", CultureInfo.InvariantCulture);
 
@@ -2327,23 +2327,23 @@ public sealed class StepWriter
 }
 ```
 
-Nota: `Length(float)` moltiplica in `double` (`meters * 1000.0`) — `0.02f` diventa `19.99999955…`, arrotondato a `20.0`.
+Note: `Length(float)` multiplies in `double` (`meters * 1000.0`) — `0.02f` becomes `19.99999955…`, rounded to `20.0`.
 
-- [ ] **Step 4: Eseguire i test e verificare che passino**
+- [ ] **Step 4: Run the tests and verify they pass**
 
 Run: `dotnet test tests/Scanner.Brep.Tests`
-Expected: PASS (tutti, 11 test).
+Expected: PASS (all, 11 tests).
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add -A
-git commit -m "feat(brep): writer STEP AP214 in millimetri" -m "Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
+git commit -m "feat(brep): STEP AP214 writer in millimeters" -m "Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 ```
 
 ---
 
-### Task 9: Ricostruzione meccanica e pipeline completa scansione → STEP
+### Task 9: Mechanical reconstruction and full scan → STEP pipeline
 
 **Files:**
 - Create: `src/Scanner.Core/ProcessingProfile.cs`
@@ -2351,16 +2351,16 @@ git commit -m "feat(brep): writer STEP AP214 in millimetri" -m "Co-Authored-By: 
 - Test: `tests/Scanner.Brep.Tests/Reconstruction/MechanicalReconstructorTests.cs`, `tests/Scanner.Brep.Tests/Reconstruction/ScanToStepTests.cs`
 
 **Interfaces:**
-- Consumes: `TsdfVolume` (T3), `SurfaceNets` (T4), `PointCloud`/`RansacOptions`/`RansacDetector`/`DetectedShape`/primitive (T5), builder e validatore (T6, T7), `StepWriter` (T8), `SyntheticScan`/`BoxSdf`/`TubeSdf` (T2, nei test).
+- Consumes: `TsdfVolume` (T3), `SurfaceNets` (T4), `PointCloud`/`RansacOptions`/`RansacDetector`/`DetectedShape`/primitives (T5), builders and validator (T6, T7), `StepWriter` (T8), `SyntheticScan`/`BoxSdf`/`TubeSdf` (T2, in tests).
 - Produces:
-  - `sealed record ProcessingProfile(float VoxelSize, float TruncationVoxels, float RansacDistance, float NormalThresholdDegrees, float MinInlierFraction, int IterationsPerShape, int Seed)` con `static ProcessingProfile Draft` e `static ProcessingProfile Fine`.
+  - `sealed record ProcessingProfile(float VoxelSize, float TruncationVoxels, float RansacDistance, float NormalThresholdDegrees, float MinInlierFraction, int IterationsPerShape, int Seed)` with `static ProcessingProfile Draft` and `static ProcessingProfile Fine`.
   - `sealed record ReconstructionOptions(float VertexTolerance = 1e-4f, float CoaxialTolerance = 0.002f, float AngleToleranceDegrees = 3f)`.
   - `sealed record ReconstructionResult(BrepSolid? Solid, string? FailureReason)`.
   - `static ReconstructionResult MechanicalReconstructor.Reconstruct(IReadOnlyList<DetectedShape> shapes, ReconstructionOptions options)`.
-  - `sealed record ScanResult(TriangleMesh Mesh, IReadOnlyList<DetectedShape> Shapes, BrepSolid? Solid, string? Step, string? FailureReason)` con `bool Succeeded`.
+  - `sealed record ScanResult(TriangleMesh Mesh, IReadOnlyList<DetectedShape> Shapes, BrepSolid? Solid, string? Step, string? FailureReason)` with `bool Succeeded`.
   - `static ScanResult ScanToStep.Run(IEnumerable<DepthFrame> frames, ProcessingProfile profile, string productName, CancellationToken cancellationToken = default)`.
 
-- [ ] **Step 1: Scrivere i test del ricostruttore (falliscono)**
+- [ ] **Step 1: Write the reconstructor tests (failing)**
 
 `tests/Scanner.Brep.Tests/Reconstruction/MechanicalReconstructorTests.cs`:
 
@@ -2423,7 +2423,7 @@ public class MechanicalReconstructorTests
         var result = MechanicalReconstructor.Reconstruct(shapes, new ReconstructionOptions());
 
         Assert.Null(result.Solid);
-        Assert.Contains("coassiale", result.FailureReason!);
+        Assert.Contains("coaxial", result.FailureReason!);
     }
 
     [Fact]
@@ -2439,19 +2439,19 @@ public class MechanicalReconstructorTests
 }
 ```
 
-- [ ] **Step 2: Eseguire i test e verificare che falliscano**
+- [ ] **Step 2: Run the tests and verify they fail**
 
 Run: `dotnet test tests/Scanner.Brep.Tests --filter "FullyQualifiedName~MechanicalReconstructorTests"`
-Expected: FAIL di compilazione — `Scanner.Brep.Reconstruction` inesistente.
+Expected: compilation FAILURE — `Scanner.Brep.Reconstruction` does not exist.
 
-- [ ] **Step 3: Implementare profilo e ricostruttore**
+- [ ] **Step 3: Implement the profile and the reconstructor**
 
 `src/Scanner.Core/ProcessingProfile.cs`:
 
 ```csharp
 namespace Scanner.Core;
 
-/// <summary>Parametri della pipeline. Bozza per il telefono, Fine per il desktop.</summary>
+/// <summary>Pipeline parameters. Draft for the phone, Fine for the desktop.</summary>
 public sealed record ProcessingProfile(
     float VoxelSize,
     float TruncationVoxels,
@@ -2482,8 +2482,8 @@ public sealed record ReconstructionOptions(float VertexTolerance = 1e-4f, float 
 public sealed record ReconstructionResult(BrepSolid? Solid, string? FailureReason);
 
 /// <summary>
-/// Modalità Meccanico (v0): solo piani → poliedro convesso; un cilindro esterno + foro coassiale opzionale
-/// + due tappi ortogonali → tubo. Ogni altro caso è riportato come non supportato, mai come eccezione.
+/// Mechanical mode (v0): planes only → convex polyhedron; one outer cylinder + optional coaxial hole
+/// + two orthogonal caps → tube. Every other case is reported as unsupported, never as an exception.
 /// </summary>
 public static class MechanicalReconstructor
 {
@@ -2499,7 +2499,7 @@ public static class MechanicalReconstructor
             var errors = BrepValidator.Validate(solid);
             return errors.Count == 0
                 ? new ReconstructionResult(solid, null)
-                : new ReconstructionResult(null, "B-Rep non valido: " + string.Join("; ", errors));
+                : new ReconstructionResult(null, "Invalid B-Rep: " + string.Join("; ", errors));
         }
         catch (Exception ex) when (ex is NotSupportedException or InvalidOperationException or ArgumentException)
         {
@@ -2514,7 +2514,7 @@ public static class MechanicalReconstructor
         var holes = cylinders.Where(c => c.IsHole).ToList();
         if (outer.Count != 1 || holes.Count > 1)
             throw new NotSupportedException(
-                $"Supportati solo un cilindro esterno e al più un foro (trovati {outer.Count} esterni e {holes.Count} fori).");
+                $"Only one outer cylinder and at most one hole are supported (found {outer.Count} outer and {holes.Count} holes).");
 
         var main = outer[0];
         var axis = main.Axis;
@@ -2524,15 +2524,15 @@ public static class MechanicalReconstructor
             bool parallel = MathF.Abs(Vector3.Dot(hole.Axis, axis)) >= cosTolerance;
             float offset = main.RadialVector(hole.AxisPoint).Length();
             if (!parallel || offset > options.CoaxialTolerance)
-                throw new NotSupportedException("Il foro non è coassiale al cilindro esterno.");
+                throw new NotSupportedException("The hole is not coaxial with the outer cylinder.");
         }
 
         var caps = planes.Where(p => MathF.Abs(Vector3.Dot(p.Normal, axis)) >= cosTolerance).ToList();
         if (caps.Count != 2 || planes.Count != 2)
             throw new NotSupportedException(
-                $"Servono esattamente due piani ortogonali all'asse (trovati {caps.Count} su {planes.Count}).");
+                $"Exactly two planes orthogonal to the axis are required (found {caps.Count} out of {planes.Count}).");
 
-        // Punto dell'asse AxisPoint + h·axis sul piano n·x = d  ⇒  h = (d − n·AxisPoint) / (n·axis)
+        // Axis point AxisPoint + h·axis on the plane n·x = d  ⇒  h = (d − n·AxisPoint) / (n·axis)
         var heights = caps
             .Select(p => (p.D - Vector3.Dot(p.Normal, main.AxisPoint)) / Vector3.Dot(p.Normal, axis))
             .OrderBy(h => h)
@@ -2542,12 +2542,12 @@ public static class MechanicalReconstructor
 }
 ```
 
-- [ ] **Step 4: Eseguire i test del ricostruttore e verificare che passino**
+- [ ] **Step 4: Run the reconstructor tests and verify they pass**
 
 Run: `dotnet test tests/Scanner.Brep.Tests --filter "FullyQualifiedName~MechanicalReconstructorTests"`
-Expected: PASS (4 test).
+Expected: PASS (4 tests).
 
-- [ ] **Step 5: Scrivere i test end-to-end (falliscono)**
+- [ ] **Step 5: Write the end-to-end tests (failing)**
 
 `tests/Scanner.Brep.Tests/Reconstruction/ScanToStepTests.cs`:
 
@@ -2618,12 +2618,12 @@ public class ScanToStepTests
 }
 ```
 
-- [ ] **Step 6: Eseguire i test e verificare che falliscano**
+- [ ] **Step 6: Run the tests and verify they fail**
 
 Run: `dotnet test tests/Scanner.Brep.Tests --filter "FullyQualifiedName~ScanToStepTests"`
-Expected: FAIL di compilazione — `ScanToStep` inesistente.
+Expected: compilation FAILURE — `ScanToStep` does not exist.
 
-- [ ] **Step 7: Implementare la pipeline**
+- [ ] **Step 7: Implement the pipeline**
 
 `src/Scanner.Brep/Reconstruction/ScanToStep.cs`:
 
@@ -2643,7 +2643,7 @@ public sealed record ScanResult(TriangleMesh Mesh, IReadOnlyList<DetectedShape> 
     public bool Succeeded => Step is not null;
 }
 
-/// <summary>Pipeline completa modalità Meccanico: fusione → mesh → RANSAC → B-Rep → STEP.</summary>
+/// <summary>Full Mechanical-mode pipeline: fusion → mesh → RANSAC → B-Rep → STEP.</summary>
 public static class ScanToStep
 {
     private const int AbsoluteMinInliers = 30;
@@ -2682,40 +2682,40 @@ public static class ScanToStep
 }
 ```
 
-- [ ] **Step 8: Eseguire i test e verificare che passino**
+- [ ] **Step 8: Run the tests and verify they pass**
 
 Run: `dotnet test tests/Scanner.Brep.Tests --filter "FullyQualifiedName~ScanToStepTests"`
-Expected: PASS (3 test).
+Expected: PASS (3 tests).
 
-Se un test end-to-end fallisce, il messaggio contiene `FailureReason`. Diagnosi tipiche:
-- "Supportati solo un cilindro esterno…" o "Servono esattamente due piani…" sul cubo/tubo → RANSAC ha trovato forme spurie sugli spigoli arrotondati: alzare `MinInlierFraction` in `ProcessingProfile.Fine` a `0.05f`.
-- Meno di 6 piani sul cubo → abbassare `MinInlierFraction` a `0.02f` o aumentare `IterationsPerShape` a `3000`.
-Verificare prima stampando `result.Shapes` (tipo, parametri, numero di inlier) in un test temporaneo; non modificare le soglie senza aver visto quale forma è sbagliata.
+If an end-to-end test fails, the message contains `FailureReason`. Typical diagnoses:
+- "Only one outer cylinder and at most one hole are supported…" or "Exactly two planes orthogonal to the axis are required…" on the cube/tube → RANSAC found spurious shapes on the rounded edges: raise `MinInlierFraction` in `ProcessingProfile.Fine` to `0.05f`.
+- Fewer than 6 planes on the cube → lower `MinInlierFraction` to `0.02f` or increase `IterationsPerShape` to `3000`.
+First check by printing `result.Shapes` (type, parameters, inlier count) in a temporary test; do not change the thresholds without having seen which shape is wrong.
 
-- [ ] **Step 9: Eseguire tutte le suite e fare commit**
+- [ ] **Step 9: Run all suites and commit**
 
 Run: `dotnet test Scan3D.slnx`
-Expected: PASS (tutti i test di Core e Brep).
+Expected: PASS (all Core and Brep tests).
 
 ```bash
 git add -A
-git commit -m "feat(brep): ricostruzione meccanica e pipeline scansione → STEP" -m "Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
+git commit -m "feat(brep): mechanical reconstruction and scan → STEP pipeline" -m "Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 ```
 
 ---
 
-### Task 10: CLI per i file di esempio + checklist Fusion
+### Task 10: CLI for sample files + Fusion checklist
 
 **Files:**
 - Create: `tools/Scanner.Cli/Scanner.Cli.csproj` (via CLI), `tools/Scanner.Cli/Program.cs`
 - Create: `docs/fusion-checklist.md`
-- Modify: `.gitignore` (aggiungere `out/`)
+- Modify: `.gitignore` (add `out/`)
 
 **Interfaces:**
 - Consumes: `SyntheticScan`, `BoxSdf`, `TubeSdf` (T2), `ProcessingProfile` (T9), `ScanToStep.Run` (T9).
-- Produces: comando `dotnet run --project tools/Scanner.Cli -- <cube|tube> <file.stp>`; exit code 0 se lo STEP è scritto, 1 per uso errato, 2 se la ricostruzione fallisce.
+- Produces: command `dotnet run --project tools/Scanner.Cli -- <cube|tube> <file.stp>`; exit code 0 if the STEP is written, 1 for incorrect usage, 2 if reconstruction fails.
 
-- [ ] **Step 1: Creare il progetto**
+- [ ] **Step 1: Create the project**
 
 ```bash
 dotnet new console -n Scanner.Cli -o tools/Scanner.Cli -f net10.0
@@ -2724,9 +2724,9 @@ dotnet add tools/Scanner.Cli reference src/Scanner.Brep
 echo "out/" >> .gitignore
 ```
 
-- [ ] **Step 2: Scrivere `Program.cs`**
+- [ ] **Step 2: Write `Program.cs`**
 
-`tools/Scanner.Cli/Program.cs` (sostituisce il contenuto generato):
+`tools/Scanner.Cli/Program.cs` (replaces the generated content):
 
 ```csharp
 using System.Diagnostics;
@@ -2738,7 +2738,7 @@ using Scanner.Core.Synthetic;
 
 if (args.Length != 2 || args[0] is not ("cube" or "tube"))
 {
-    Console.Error.WriteLine("Uso: Scanner.Cli <cube|tube> <file.stp>");
+    Console.Error.WriteLine("Usage: Scanner.Cli <cube|tube> <file.stp>");
     return 1;
 }
 
@@ -2750,13 +2750,13 @@ var stopwatch = Stopwatch.StartNew();
 var frames = SyntheticScan.Capture(shape, 40, 0.12f, SyntheticScan.DefaultIntrinsics, 0.0003f, seed: 7);
 var result = ScanToStep.Run(frames, ProcessingProfile.Fine, Path.GetFileNameWithoutExtension(args[1]));
 
-Console.WriteLine($"Mesh: {result.Mesh.Positions.Count} vertici, {result.Mesh.TriangleCount} triangoli");
+Console.WriteLine($"Mesh: {result.Mesh.Positions.Count} vertices, {result.Mesh.TriangleCount} triangles");
 foreach (var detected in result.Shapes)
 {
     string description = detected.Primitive switch
     {
-        PlanePrimitive p => $"piano    n=({p.Normal.X:F3},{p.Normal.Y:F3},{p.Normal.Z:F3}) d={p.D * 1000:F2} mm",
-        CylinderPrimitive c => $"cilindro r={c.Radius * 1000:F2} mm asse=({c.Axis.X:F3},{c.Axis.Y:F3},{c.Axis.Z:F3}) foro={c.IsHole}",
+        PlanePrimitive p => $"plane    n=({p.Normal.X:F3},{p.Normal.Y:F3},{p.Normal.Z:F3}) d={p.D * 1000:F2} mm",
+        CylinderPrimitive c => $"cylinder r={c.Radius * 1000:F2} mm axis=({c.Axis.X:F3},{c.Axis.Y:F3},{c.Axis.Z:F3}) hole={c.IsHole}",
         _ => detected.Primitive.GetType().Name,
     };
     Console.WriteLine($"  {description}  inlier={detected.InlierIndices.Length}");
@@ -2764,64 +2764,64 @@ foreach (var detected in result.Shapes)
 
 if (!result.Succeeded)
 {
-    Console.Error.WriteLine($"Ricostruzione fallita: {result.FailureReason}");
+    Console.Error.WriteLine($"Reconstruction failed: {result.FailureReason}");
     return 2;
 }
 
 Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(args[1]))!);
 File.WriteAllText(args[1], result.Step);
-Console.WriteLine($"Scritto {args[1]} ({result.Solid!.Faces.Count} facce) in {stopwatch.Elapsed.TotalSeconds:F1} s");
+Console.WriteLine($"Wrote {args[1]} ({result.Solid!.Faces.Count} faces) in {stopwatch.Elapsed.TotalSeconds:F1} s");
 return 0;
 ```
 
-- [ ] **Step 3: Eseguire il CLI e verificare l'output**
+- [ ] **Step 3: Run the CLI and verify the output**
 
 Run: `dotnet run --project tools/Scanner.Cli -- cube out/cube.stp`
-Expected: 6 righe `piano` con `d≈20.00 mm`, poi `Scritto out/cube.stp (6 facce)`; exit code 0.
+Expected: 6 `plane` lines with `d≈20.00 mm`, then `Wrote out/cube.stp (6 faces)`; exit code 0.
 
 Run: `dotnet run --project tools/Scanner.Cli -- tube out/tube.stp`
-Expected: due righe `cilindro` (r≈20 mm foro=False, r≈10 mm foro=True), due `piano` con `d≈15.00 mm`, poi `Scritto out/tube.stp (4 facce)`; exit code 0.
+Expected: two `cylinder` lines (r≈20 mm hole=False, r≈10 mm hole=True), two `plane` lines with `d≈15.00 mm`, then `Wrote out/tube.stp (4 faces)`; exit code 0.
 
 Run: `dotnet run --project tools/Scanner.Cli -- sphere out/x.stp`
-Expected: messaggio d'uso, exit code 1.
+Expected: usage message, exit code 1.
 
-- [ ] **Step 4: Scrivere la checklist Fusion**
+- [ ] **Step 4: Write the Fusion checklist**
 
 `docs/fusion-checklist.md`:
 
 ```markdown
-# Verifica manuale in Autodesk Fusion
+# Manual verification in Autodesk Fusion
 
-Generare i file:
+Generate the files:
 
     dotnet run --project tools/Scanner.Cli -- cube out/cube.stp
     dotnet run --project tools/Scanner.Cli -- tube out/tube.stp
 
-Per ciascun file: Fusion → File → Apri → "Apri dal mio computer…" → selezionare il `.stp`.
+For each file: Fusion → File → Open → "Open from my computer…" → select the `.stp`.
 
 ## cube.stp
-- [ ] Si importa senza avvisi di riparazione.
-- [ ] Nel Browser compare sotto **Corpi** (non "Corpi mesh").
-- [ ] 6 facce piane; Inspect → Measure tra facce opposte ≈ 40 mm (±1 mm).
-- [ ] Modify → Press Pull su una faccia funziona.
-- [ ] Modify → Fillet su uno spigolo (2 mm) funziona.
+- [ ] Imports without repair warnings.
+- [ ] Appears in the Browser under **Bodies** (not "Mesh Bodies").
+- [ ] 6 planar faces; Inspect → Measure between opposite faces ≈ 40 mm (±1 mm).
+- [ ] Modify → Press Pull on a face works.
+- [ ] Modify → Fillet on an edge (2 mm) works.
 
 ## tube.stp
-- [ ] Si importa senza avvisi di riparazione ed è un **corpo solido**.
-- [ ] Diametro esterno ≈ 40 mm, foro ≈ 20 mm, altezza ≈ 30 mm (Inspect → Measure).
-- [ ] Selezionando il foro Fusion lo riconosce come faccia cilindrica (mostra il diametro).
-- [ ] Modify → Chamfer sullo spigolo circolare superiore funziona.
+- [ ] Imports without repair warnings and is a **solid body**.
+- [ ] Outer diameter ≈ 40 mm, hole ≈ 20 mm, height ≈ 30 mm (Inspect → Measure).
+- [ ] Selecting the hole, Fusion recognizes it as a cylindrical face (shows the diameter).
+- [ ] Modify → Chamfer on the top circular edge works.
 
-Annotare versione di Fusion, data ed eventuali problemi in fondo a questo file.
+Note the Fusion version, date, and any issues at the bottom of this file.
 ```
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add -A
-git commit -m "feat(cli): generatore STEP di esempio e checklist di verifica in Fusion" -m "Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
+git commit -m "feat(cli): sample STEP generator and Fusion verification checklist" -m "Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 ```
 
-- [ ] **Step 6: Verifica manuale (utente)**
+- [ ] **Step 6: Manual verification (user)**
 
-Chiedere all'utente di aprire `out/cube.stp` e `out/tube.stp` in Fusion seguendo `docs/fusion-checklist.md` e riportare l'esito. Il traguardo è chiuso solo quando entrambi si aprono come corpi solidi modificabili.
+Ask the user to open `out/cube.stp` and `out/tube.stp` in Fusion following `docs/fusion-checklist.md` and report the outcome. The milestone is closed only once both open as editable solid bodies.

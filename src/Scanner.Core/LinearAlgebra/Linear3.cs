@@ -2,7 +2,7 @@ namespace Scanner.Core.LinearAlgebra;
 
 public static class Linear3
 {
-    /// <summary>Risolve A·x = b con la regola di Cramer. Restituisce false se A è quasi singolare.</summary>
+    /// <summary>Solves A·x = b using Cramer's rule. Returns false if A is nearly singular.</summary>
     public static bool TrySolve(double[,] a, double[] b, out double[] x)
     {
         x = new double[3];

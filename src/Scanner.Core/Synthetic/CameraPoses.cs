@@ -4,7 +4,7 @@ namespace Scanner.Core.Synthetic;
 
 public static class CameraPoses
 {
-    /// <summary>Posa camera→mondo (convenzione OpenCV) che guarda <paramref name="target"/> da <paramref name="eye"/>.</summary>
+    /// <summary>Camera→world pose (OpenCV convention) looking at <paramref name="target"/> from <paramref name="eye"/>.</summary>
     public static Matrix4x4 LookAt(Vector3 eye, Vector3 target)
     {
         var forward = Vector3.Normalize(target - eye);
@@ -18,7 +18,7 @@ public static class CameraPoses
             eye.X, eye.Y, eye.Z, 1);
     }
 
-    /// <summary><paramref name="count"/> pose distribuite uniformemente su una sfera, tutte rivolte al centro.</summary>
+    /// <summary><paramref name="count"/> poses uniformly distributed on a sphere, all facing the center.</summary>
     public static IReadOnlyList<Matrix4x4> FibonacciSphere(int count, float radius, Vector3 target)
     {
         float golden = MathF.PI * (3f - MathF.Sqrt(5f));

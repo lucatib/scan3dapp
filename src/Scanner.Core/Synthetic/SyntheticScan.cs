@@ -3,7 +3,7 @@ using Scanner.Capture;
 
 namespace Scanner.Core.Synthetic;
 
-/// <summary>Scansione simulata: viste distribuite su una sfera attorno all'origine.</summary>
+/// <summary>Simulated scan: views distributed on a sphere around the origin.</summary>
 public static class SyntheticScan
 {
     public static CameraIntrinsics DefaultIntrinsics => new(320, 240, 300f, 300f, 160f, 120f);
