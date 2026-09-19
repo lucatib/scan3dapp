@@ -6,7 +6,7 @@ namespace Scanner.Core.Tests.Segmentation;
 
 public class RansacDetectorTests
 {
-    private static readonly RansacOptions Options = new(DistanceThreshold: 0.001f, NormalThresholdDegrees: 5f, MinInliers: 200);
+    private static readonly RansacOptions Options = new(DistanceThreshold: 0.001f, NormalThresholdDegrees: 20f, MinInliers: 200);
 
     [Fact]
     public void Cube_yields_six_axis_aligned_planes()

@@ -32,7 +32,13 @@ public static class PrimitiveFitter
         if (indices.Count < 6) return null;
         var normalMoments = new double[3, 3];
         foreach (int i in indices) AddOuter(normalMoments, cloud.Normals[i]);
-        var axis = SymmetricEigen3.Solve(normalMoments).Vectors[0];
+        var (values, vectors) = SymmetricEigen3.Solve(normalMoments);
+        // A cylinder's normals sweep the plane orthogonal to the axis, so the moment matrix is rank 2: the
+        // smallest eigenvalue (along the axis) is orders of magnitude below the second. For a planar or
+        // near-planar inlier set the normals are collinear instead, the two smallest eigenvalues are both
+        // negligible and equal, and Vectors[0] is an arbitrary direction. Require a clear relative gap.
+        if (values[0] >= 0.1 * values[1]) return null;
+        var axis = vectors[0];
         if (Vector3.Dot(axis, axisHint) < 0) axis = -axis;
 
         var (u, v) = Basis.Orthonormal(axis);
