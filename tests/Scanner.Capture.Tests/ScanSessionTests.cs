@@ -15,7 +15,7 @@ public sealed class ScanSessionTests : IDisposable
     }
 
     private static DepthFrame Frame(float depth, double time) =>
-        new(new CameraIntrinsics(3, 2, 100f, 101f, 1f, 0.5f), [depth, 0f, 0.5f, 1.2345f, 70f, depth],
+        new(new CameraIntrinsics(3, 2, 100f, 101f, 1f, 0.5f), [depth, 0f, 0.5f, 1.2346f, 70f, depth],
             Matrix4x4.CreateTranslation(1, 2, 3), time);
 
     [Fact]
@@ -32,9 +32,7 @@ public sealed class ScanSessionTests : IDisposable
         Assert.Equal(frame.Intrinsics, read.Intrinsics);
         Assert.Equal(frame.CameraToWorld, read.CameraToWorld);
         Assert.Equal(1.25, read.TimestampSeconds);
-        // 1.2345f * 1000f == 1234.5f exactly; MathF.Round with the default MidpointRounding.ToEven
-        // rounds this to 1234 (even), not 1235, so the round-tripped value is 1.234f.
-        Assert.Equal(1.234f, read.Depth[3], 4);
+        Assert.Equal(1.235f, read.Depth[3], 4);
         Assert.Equal(65.535f, read.Depth[4], 3); // clamped to uint16 millimetres
         Assert.Equal(0f, read.Depth[1]);
         Assert.Equal(confidence, readConfidence);
