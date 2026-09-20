@@ -1,4 +1,5 @@
 using Google.AR.Core;
+using Google.AR.Core.Exceptions;
 using Java.Nio;
 using Scanner.Capture;
 using Scanner.Capture.ArCore;
@@ -7,15 +8,38 @@ using ArFrame = Google.AR.Core.Frame;
 
 namespace Scanner.App.Droid.Ar;
 
-/// <summary>Copies ARCore raw depth (uint16 mm) and raw confidence into a <see cref="DepthFrame"/>. GL thread only.</summary>
-internal static class DepthFrameReader
+/// <summary>Why one attempt to read depth for a camera frame did or did not produce a frame.</summary>
+internal enum DepthReadOutcome
 {
+    /// <summary>A depth image was read and back-projected.</summary>
+    Read,
+
+    /// <summary>ARCore has no depth image yet (normal while its depth estimate warms up).</summary>
+    NotAvailable,
+
+    /// <summary>The depth image is the one already consumed for an earlier camera frame.</summary>
+    Stale,
+
+    /// <summary>Fresh depth that the integration throttle declined.</summary>
+    Declined,
+}
+
+/// <summary>Result of <see cref="DepthFrameReader.Read"/>; <see cref="Frame"/> is set only for <see cref="DepthReadOutcome.Read"/>.</summary>
+internal readonly record struct DepthRead(DepthReadOutcome Outcome, DepthFrame? Frame, byte[]? Confidence);
+
+/// <summary>Copies ARCore raw depth (uint16 mm) and raw confidence into a <see cref="DepthFrame"/>. GL thread only.</summary>
+internal sealed class DepthFrameReader
+{
+    private const string LogTag = "Scan3D";
+
+    /// <summary>Timestamp of the depth image last consumed; ARCore timestamps are positive, so -1 means "none yet".</summary>
+    private long _lastDepthTimestamp = -1;
+
     /// <summary>
-    /// Returns null when no fresh depth image matches this camera frame, or when <paramref name="accept"/>
-    /// (called with the frame timestamp in seconds, only for fresh depth) declines it.
+    /// Reads the depth image belonging to <paramref name="frame"/>, if it is a new one and
+    /// <paramref name="accept"/> (called with the frame timestamp in seconds, only for fresh depth) accepts it.
     /// </summary>
-    /// <exception cref="Google.AR.Core.Exceptions.NotYetAvailableException">Depth is not available yet.</exception>
-    public static (DepthFrame Frame, byte[] Confidence)? TryRead(ArFrame frame, Camera camera, Func<double, bool> accept)
+    public DepthRead Read(ArFrame frame, Camera camera, Func<double, bool> accept)
     {
         // ARCore images must be closed explicitly: Dispose() only drops the managed peer, and unclosed images
         // exhaust ARCore's image pool (ResourceExhaustedException) after a few frames.
@@ -25,9 +49,19 @@ internal static class DepthFrameReader
         {
             depthImage = frame.AcquireRawDepthImage16Bits()!;
             long timestamp = frame.Timestamp;
-            if (depthImage.Timestamp != timestamp) return null; // stale depth: its pose would not match this frame
+            long depthTimestamp = depthImage.Timestamp;
+
+            // Fast path: the depth image carries this camera frame's timestamp, so the pose below is exactly its own.
+            // Fallback: ARCore documents freshness as "differs from the previously acquired depth image", which is
+            // the only test that holds on a device whose raw depth images do not carry the camera frame timestamp.
+            // Without it the equality alone would reject every frame and the scan would record nothing, silently.
+            if (depthTimestamp != timestamp && depthTimestamp == _lastDepthTimestamp)
+                return new DepthRead(DepthReadOutcome.Stale, null, null);
+            _lastDepthTimestamp = depthTimestamp;
+
+            // The frame timestamp, not the depth one: it is the timestamp of the camera pose used below.
             double seconds = timestamp / 1e9;
-            if (!accept(seconds)) return null;
+            if (!accept(seconds)) return new DepthRead(DepthReadOutcome.Declined, null, null);
 
             confidenceImage = frame.AcquireRawDepthConfidenceImage()!;
             int width = depthImage.Width;
@@ -51,7 +85,11 @@ internal static class DepthFrameReader
 
             var depthFrame = ArCoreConversions.DepthFrameFromMillimeters(millimeters, intrinsics,
                 ArCoreConversions.CameraToWorldFromGlPose(pose), seconds);
-            return (depthFrame, confidence);
+            return new DepthRead(DepthReadOutcome.Read, depthFrame, confidence);
+        }
+        catch (NotYetAvailableException)
+        {
+            return new DepthRead(DepthReadOutcome.NotAvailable, null, null);
         }
         finally
         {
@@ -63,13 +101,23 @@ internal static class DepthFrameReader
     private static void Release(AndroidImage? image)
     {
         if (image is null) return;
+        // Release runs in a finally: neither step may throw, or it would replace the exception in flight.
         try
         {
             image.Close();
         }
-        finally
+        catch (Exception ex)
+        {
+            Android.Util.Log.Warn(LogTag, $"Closing an ARCore image failed: {ex.Message}");
+        }
+
+        try
         {
             image.Dispose();
+        }
+        catch (Exception ex)
+        {
+            Android.Util.Log.Warn(LogTag, $"Disposing an ARCore image failed: {ex.Message}");
         }
     }
 

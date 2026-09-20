@@ -45,15 +45,23 @@ public sealed class ScanPage : ContentPage
     {
         base.OnAppearing();
         _visible = true;
-        if (Window is { } window && !ReferenceEquals(window, _window))
+        try
         {
-            // Subscribe before preparing: installing ARCore leaves the app, and Resumed brings us back here.
-            DetachWindow();
-            _window = window;
-            window.Stopped += OnWindowStopped;
-            window.Resumed += OnWindowResumed;
+            if (Window is { } window && !ReferenceEquals(window, _window))
+            {
+                // Subscribe before preparing: installing ARCore leaves the app, and Resumed brings us back here.
+                DetachWindow();
+                _window = window;
+                window.Stopped += OnWindowStopped;
+                window.Resumed += OnWindowResumed;
+            }
+            await StartAsync();
         }
-        await StartAsync();
+        catch (Exception ex)
+        {
+            // async void: an exception here would be unobserved and would take the process down.
+            _status.Text = $"Could not start the scan: {ex.Message}";
+        }
     }
 
     protected override void OnDisappearing()
@@ -74,38 +82,51 @@ public sealed class ScanPage : ContentPage
         }
     }
 
-    /// <summary>Prepares the platform (permission, ARCore install) and creates the session once, then starts AR.</summary>
+    /// <summary>Prepares the platform (permission, ARCore install) and creates the session once, then starts AR.
+    /// Never throws: it is awaited from async void entry points, where an exception would kill the process.</summary>
     private async Task StartAsync()
     {
-        if (_scan is null)
+        try
         {
-            if (_preparing) return;
-            _preparing = true;
-            string? error;
-            try
+            if (_scan is null)
             {
-                _status.Text = "Preparing the camera…";
-                error = await ArPlatform.PrepareAsync();
+                if (_preparing) return;
+                _preparing = true;
+                string? error;
+                try
+                {
+                    _status.Text = "Preparing the camera…";
+                    error = await ArPlatform.PrepareAsync();
+                }
+                finally
+                {
+                    _preparing = false;
+                }
+                if (!_visible) return;
+                if (error is not null)
+                {
+                    _status.Text = error;
+                    _startPause.IsEnabled = false;
+                    return;
+                }
+                var (id, directory) = _store.CreateNew();
+                _sessionId = id;
+                // ScanSessionWriter creates the session folder, so this can fail on a full or read-only volume.
+                _scan = new LiveScanSession(new ScanSessionWriter(directory, id, DeviceInfo.Current.Model));
+                _arView.Session = _scan;
+                _startPause.IsEnabled = true;
+                _status.Text = "Aim the crosshair at the piece and press Start.";
             }
-            finally
-            {
-                _preparing = false;
-            }
-            if (!_visible) return;
-            if (error is not null)
-            {
-                _status.Text = error;
-                _startPause.IsEnabled = false;
-                return;
-            }
-            var (id, directory) = _store.CreateNew();
-            _sessionId = id;
-            _scan = new LiveScanSession(new ScanSessionWriter(directory, id, DeviceInfo.Current.Model));
-            _arView.Session = _scan;
-            _startPause.IsEnabled = true;
-            _status.Text = "Aim the crosshair at the piece and press Start.";
+            _arView.Resume();
         }
-        _arView.Resume();
+        catch (Exception ex)
+        {
+            // Expected: IOException and UnauthorizedAccessException from creating the session folder, and whatever
+            // the platform preparation throws. Anything else must be shown rather than escape unobserved.
+            // A session that was created stays usable (only AR failed to start); without one, Start stays disabled.
+            _status.Text = $"Could not start the scan: {ex.Message}";
+            _startPause.IsEnabled = _scan is not null;
+        }
     }
 
     private void DetachWindow()
@@ -120,7 +141,15 @@ public sealed class ScanPage : ContentPage
 
     private async void OnWindowResumed(object? sender, EventArgs e)
     {
-        if (_visible) await StartAsync(); // also retries preparation after the ARCore install flow
+        try
+        {
+            if (_visible) await StartAsync(); // also retries preparation after the ARCore install flow
+        }
+        catch (Exception ex)
+        {
+            // StartAsync already guards itself; this is the async void backstop that must never let anything escape.
+            _status.Text = $"Could not resume the scan: {ex.Message}";
+        }
     }
 
     private void OnStartPauseClicked(object? sender, EventArgs e)

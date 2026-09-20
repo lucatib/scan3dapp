@@ -20,14 +20,24 @@ public sealed record LiveScanResult(Vector3[] AllPoints, Vector3[] PiecePoints, 
 /// region around the target, records frames, and isolates the piece on completion.
 /// <see cref="Integrate"/> runs on one worker thread at a time; <see cref="SnapshotPoints"/> may run concurrently
 /// on the render thread; state methods run on the UI/render thread.
+/// <see cref="State"/> and <see cref="FrameCount"/> are read several times a second on the UI thread and never
+/// take a lock, so the UI cannot be blocked by a frame write.
 /// </summary>
 public sealed class LiveScanSession
 {
     private readonly ScanSessionWriter _writer;
     private readonly VoxelPointAccumulator _accumulator;
+
+    /// <summary>Guards the state transitions and the target. Never held across file I/O.</summary>
     private readonly object _gate = new();
-    private LiveScanState _state = LiveScanState.Idle;
+
+    /// <summary>Guards the recorded data (accumulator + writer). Taken by integration workers and
+    /// <see cref="Complete"/> only, never by the UI thread, and never while <see cref="_gate"/> is held.</summary>
+    private readonly object _writeGate = new();
+
+    private volatile LiveScanState _state = LiveScanState.Idle;
     private double _lastIntegration = double.NegativeInfinity;
+    private int _frameCount;
 
     public LiveScanSession(ScanSessionWriter writer, LiveScanOptions? options = null)
     {
@@ -38,19 +48,14 @@ public sealed class LiveScanSession
 
     public LiveScanOptions Options { get; }
 
-    public LiveScanState State
-    {
-        get { lock (_gate) return _state; }
-    }
+    public LiveScanState State => _state;
 
     public Vector3? Target { get; private set; }
     public float? SupportPlaneHeight { get; private set; }
     public int PointCount => _accumulator.CellCount;
 
-    public int FrameCount
-    {
-        get { lock (_gate) return _writer.FrameCount; }
-    }
+    /// <summary>Frames written so far; published only after the frame is on disk.</summary>
+    public int FrameCount => Volatile.Read(ref _frameCount);
 
     /// <summary>Idle → WaitingForTarget (the renderer then picks the target); Paused → Recording.</summary>
     public void RequestStart()
@@ -123,11 +128,15 @@ public sealed class LiveScanSession
         var points = new List<Vector3>();
         DepthBackProjector.Project(frame, confidence, filter, points);
 
-        lock (_gate)
+        // Outside _gate: the write is a File.Create per frame and the UI polls State/FrameCount while it runs.
+        // _writeGate keeps accumulation and the frame write atomic and ordered, and re-checks completion so that
+        // a Complete that started meanwhile cannot be followed by a frame it did not count.
+        lock (_writeGate)
         {
             if (_state == LiveScanState.Completed) return 0;
             _accumulator.AddRange(points);
             _writer.AppendFrame(frame, confidence);
+            Volatile.Write(ref _frameCount, _writer.FrameCount);
         }
         return points.Count;
     }
@@ -137,19 +146,27 @@ public sealed class LiveScanSession
     /// <summary>Stops the scan, isolates the piece around the target, writes points and manifest.</summary>
     public LiveScanResult Complete()
     {
+        Vector3? target;
+        float? supportPlaneHeight;
         lock (_gate)
         {
             if (_state == LiveScanState.Completed) throw new InvalidOperationException("The scan is already completed.");
-            _state = LiveScanState.Completed;
+            _state = LiveScanState.Completed; // no integration entering the write gate from here on appends a frame
+            target = Target;
+            supportPlaneHeight = SupportPlaneHeight;
+        }
 
+        // Waits for an integration already inside the write gate, so every frame written is counted here.
+        lock (_writeGate)
+        {
             var all = _accumulator.Snapshot();
-            var piece = Target is { } t
-                ? ObjectIsolator.Isolate(all, t, SupportPlaneHeight, 2 * Options.VoxelSize)
+            var piece = target is { } t
+                ? ObjectIsolator.Isolate(all, t, supportPlaneHeight, 2 * Options.VoxelSize)
                 : all;
-            bool isolated = Target is not null && piece.Length >= Options.MinIsolatedPoints;
+            bool isolated = target is not null && piece.Length >= Options.MinIsolatedPoints;
             if (!isolated) piece = all;
 
-            _writer.Complete(Target, SupportPlaneHeight, piece);
+            _writer.Complete(target, supportPlaneHeight, piece);
             return new LiveScanResult(all, piece, isolated);
         }
     }

@@ -40,8 +40,11 @@ public sealed class ArScanViewHandler : ViewHandler<ArScanView, GLSurfaceView>
         var view = new GLSurfaceView(Context) { PreserveEGLContextOnPause = true };
         view.SetEGLContextClientVersion(3);
         view.SetEGLConfigChooser(8, 8, 8, 8, 16, 0);
-        _renderer = new ArScanRenderer(status =>
-            MainThread.BeginInvokeOnMainThread(() => CurrentView?.ReportStatus(status)));
+        _renderer = new ArScanRenderer(
+            status => MainThread.BeginInvokeOnMainThread(() => CurrentView?.ReportStatus(status)),
+            // The display the view is attached to, read on the GL thread when the surface changes, as ARCore's own
+            // sample does: a portrait-locked activity is rotation 0 only on a portrait-natural device.
+            () => view.Display is { } display ? (int)display.Rotation : 0);
         view.SetRenderer(_renderer);
         view.RenderMode = Rendermode.Continuously;
         // GLSurfaceView starts its GL thread when attached to the window; keep it paused until Resume is requested.
@@ -92,9 +95,12 @@ public sealed class ArScanViewHandler : ViewHandler<ArScanView, GLSurfaceView>
 
     private void PauseAr()
     {
+        // OnPause is idempotent and blocks until the GL thread has left OnDrawFrame, so it runs even when AR was
+        // never resumed: DisconnectHandler closes the session right after, and a GL thread started by a detach and
+        // re-attach of the platform view would otherwise call Update on a closed session (a native crash).
+        CurrentPlatformView?.OnPause();
         if (!_running) return;
         _running = false;
-        CurrentPlatformView?.OnPause(); // blocks until the GL thread has left OnDrawFrame
         _session?.Pause();
     }
 

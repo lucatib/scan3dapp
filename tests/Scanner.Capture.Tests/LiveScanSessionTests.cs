@@ -134,4 +134,45 @@ public sealed class LiveScanSessionTests : IDisposable
         Assert.Equal(0, session.Integrate(FlatFrame(1), null));
         Assert.Equal(0, session.FrameCount);
     }
+
+    // The frame write happens outside the state lock, so Complete can land while a worker is between the state
+    // check and its write. Every frame on disk must still be counted by the manifest, and no frame may be written
+    // after it. Several runs, because each one only hits the window with some probability.
+    [Fact]
+    public async Task Complete_during_concurrent_integration_counts_every_frame_on_disk()
+    {
+        for (int run = 0; run < 10; run++)
+        {
+            string directory = Path.Combine(_dir, $"run{run}");
+            var session = new LiveScanSession(new ScanSessionWriter(directory, $"live{run}", "test"),
+                new LiveScanOptions(RegionRadius: 0.2f));
+            session.RequestStart();
+            session.SetTarget(new Vector3(0, 0, 1), null);
+
+            var worker = Task.Run(() =>
+            {
+                for (int i = 0; i < 100 && session.State != LiveScanState.Completed; i++)
+                    session.Integrate(WideFrame(i * 0.05), null);
+            });
+
+            // Complete as soon as a frame lands: the worker is then most likely inside the next back-projection.
+            var spin = new SpinWait();
+            while (session.FrameCount < 2) spin.SpinOnce();
+            session.Complete();
+            await worker;
+
+            int counted = ScanSessionReader.ReadManifest(directory).FrameCount;
+            string[] written = Directory.GetFiles(Path.Combine(directory, "frames"), "*.frame")
+                .Select(Path.GetFileName).OfType<string>().Order(StringComparer.Ordinal).ToArray();
+            Assert.Equal(counted, session.FrameCount);
+            Assert.Equal(Enumerable.Range(1, counted).Select(i => $"{i:D6}.frame"), written);
+        }
+    }
+
+    // 64x64 pixels, all 1 m away: enough back-projection work to widen the window Complete has to race.
+    private static DepthFrame WideFrame(double time)
+    {
+        var k = new CameraIntrinsics(64, 64, 64f, 64f, 31.5f, 31.5f);
+        return new DepthFrame(k, Enumerable.Repeat(1f, 64 * 64).ToArray(), Matrix4x4.Identity, time);
+    }
 }

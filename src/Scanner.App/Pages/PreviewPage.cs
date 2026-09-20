@@ -16,6 +16,7 @@ public sealed class PreviewPage : ContentPage
     private readonly VerticalStackLayout _panel;
 
     private string? _loadedId;
+    private Window? _window;
 
     public PreviewPage(SessionStore store)
     {
@@ -35,6 +36,27 @@ public sealed class PreviewPage : ContentPage
     protected override async void OnAppearing()
     {
         base.OnAppearing();
+        if (Window is { } window && !ReferenceEquals(window, _window))
+        {
+            DetachWindow();
+            _window = window;
+            window.Stopped += OnWindowStopped;
+            window.Resumed += OnWindowResumed;
+        }
+        _view.Resume();
+        await LoadAsync();
+    }
+
+    protected override void OnDisappearing()
+    {
+        base.OnDisappearing();
+        DetachWindow();
+        _view.Pause(); // the render thread and its GL context must not outlive the visible page
+    }
+
+    /// <summary>Loads the session once. Never throws: it is awaited from an async void entry point.</summary>
+    private async Task LoadAsync()
+    {
         if (SessionId is null || SessionId == _loadedId) return;
         _loadedId = SessionId;
         string directory = _store.DirectoryOf(SessionId);
@@ -47,9 +69,23 @@ public sealed class PreviewPage : ContentPage
             _info.Text = $"{points.Length:N0} points · {manifest.FrameCount} frames · {manifest.CreatedUtc.LocalDateTime:g}\n"
                          + "Drag to rotate, pinch to zoom.";
         }
-        catch (Exception ex) when (ex is IOException or InvalidDataException or System.Text.Json.JsonException)
+        catch (Exception ex)
         {
+            // Expected: IOException, UnauthorizedAccessException, JsonException, InvalidDataException. Anything
+            // else would become an unobserved async void exception and take the process down with it.
             _info.Text = $"Could not load the scan: {ex.Message}";
         }
     }
+
+    private void DetachWindow()
+    {
+        if (_window is null) return;
+        _window.Stopped -= OnWindowStopped;
+        _window.Resumed -= OnWindowResumed;
+        _window = null;
+    }
+
+    private void OnWindowStopped(object? sender, EventArgs e) => _view.Pause();
+
+    private void OnWindowResumed(object? sender, EventArgs e) => _view.Resume();
 }

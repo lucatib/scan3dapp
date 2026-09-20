@@ -13,4 +13,21 @@ public sealed class PointCloudView : View
         get => (Vector3[]?)GetValue(PointsProperty);
         set => SetValue(PointsProperty, value);
     }
+
+    /// <summary>True between <see cref="Resume"/> and <see cref="Pause"/>; a handler connected later resumes rendering when set.</summary>
+    internal bool IsResumeRequested { get; private set; }
+
+    /// <summary>Starts or resumes the render thread.</summary>
+    public void Resume()
+    {
+        IsResumeRequested = true;
+        Handler?.Invoke(nameof(Resume));
+    }
+
+    /// <summary>Pauses the render thread (call when the page is hidden or the app is backgrounded).</summary>
+    public void Pause()
+    {
+        IsResumeRequested = false;
+        Handler?.Invoke(nameof(Pause));
+    }
 }

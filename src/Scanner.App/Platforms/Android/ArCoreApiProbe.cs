@@ -18,6 +18,7 @@ using Java.Nio;
 // and Android.Media define a type called "Image". Alias the ARCore/Android ones
 // explicitly to avoid CS0104 ambiguous-reference errors.
 using ArFrame = Google.AR.Core.Frame;
+using ArPlane = Google.AR.Core.Plane;
 using AndroidImage = Android.Media.Image;
 
 namespace Scanner.App.Platforms.Android;
@@ -34,7 +35,9 @@ internal static class ArCoreApiProbe
     {
         ArCoreApk.Availability availability = ArCoreApk.Instance!.CheckAvailability(context)!;
         bool isSupported = availability.IsSupported;
-        _ = isSupported;
+        bool isTransient = availability.IsTransient;
+        bool isUnsupported = availability.IsUnsupported;
+        _ = (isSupported, isTransient, isUnsupported);
 
         ArCoreApk.InstallStatus status = ArCoreApk.Instance!.RequestInstall(activity, true)!;
         _ = status;
@@ -50,6 +53,7 @@ internal static class ArCoreApiProbe
         bool depthSupported = session.IsDepthModeSupported(Config.DepthMode.Automatic!);
         config.SetDepthMode(depthSupported ? Config.DepthMode.Automatic! : Config.DepthMode.Disabled!);
         config.SetFocusMode(Config.FocusMode.Auto!);
+        config.SetPlaneFindingMode(Config.PlaneFindingMode.Horizontal!);
 
         session.Configure(config);
         session.Resume();
@@ -66,6 +70,11 @@ internal static class ArCoreApiProbe
         session.SetCameraTextureName(cameraTextureId);
         session.SetDisplayGeometry(displayRotation, width, height);
         ArFrame frame = session.Update()!;
+
+        long frameTimestamp = frame.Timestamp;
+        bool displayGeometryChanged = frame.HasDisplayGeometryChanged;
+        _ = (frameTimestamp, displayGeometryChanged);
+
         return frame;
     }
 
@@ -129,13 +138,15 @@ internal static class ArCoreApiProbe
     {
         int width = image.Width;
         int height = image.Height;
+        long timestamp = image.Timestamp;
 
         AndroidImage.Plane[] planes = image.GetPlanes()!;
         AndroidImage.Plane plane0 = planes[0]!;
         ByteBuffer buffer = plane0.Buffer!;
         int rowStride = plane0.RowStride;
+        int pixelStride = plane0.PixelStride;
 
-        _ = (width, height, buffer, rowStride);
+        _ = (width, height, timestamp, buffer, rowStride, pixelStride);
     }
 
     // ---- 6. Camera intrinsics (focal length, principal point, image dimensions) ------
@@ -162,6 +173,40 @@ internal static class ArCoreApiProbe
             normalizedQuadCoords,
             Coordinates2d.TextureNormalized!,
             transformed);
+
+        // The camera background draws a clip-space quad, so it maps from OpenGL NDC rather than view coordinates.
+        frame.TransformCoordinates2d(
+            Coordinates2d.OpenglNormalizedDeviceCoordinates!,
+            normalizedQuadCoords,
+            Coordinates2d.TextureNormalized!,
+            transformed);
         return transformed;
+    }
+
+    // ---- 8. Hit test under the crosshair, trackable planes, pose translation ----------
+
+    internal static void PickTargetAndSupportPlane(Session session, ArFrame frame, float x, float y)
+    {
+        HitResult? hit = frame.HitTest(x, y)?.FirstOrDefault();
+        if (hit is null) return;
+
+        Pose hitPose = hit.HitPose!;
+        float tx = hitPose.Tx();
+        float ty = hitPose.Ty();
+        float tz = hitPose.Tz();
+        _ = (tx, ty, tz);
+
+        foreach (ITrackable trackable in session.GetAllTrackables(Java.Lang.Class.FromType(typeof(ArPlane))!)!)
+        {
+            if (trackable is not ArPlane plane) continue;
+
+            ArPlane? subsumedBy = plane.SubsumedBy;
+            Pose centerPose = plane.CenterPose!;
+            // The binding exposes Java getType() as a GetType() that hides object.GetType(); the typed local pins
+            // that this member returns ARCore's Plane.Type and not System.Type.
+            ArPlane.Type planeType = plane.GetType()!;
+
+            _ = (subsumedBy, centerPose.Ty(), planeType.Equals(ArPlane.Type.HorizontalUpwardFacing!));
+        }
     }
 }
