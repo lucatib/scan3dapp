@@ -30,8 +30,8 @@ namespace Scanner.Brep.Step;
 /// 2. Cap faces keep their outer and inner boundaries as SEPARATE LOOPS, emitted as one
 /// FACE_OUTER_BOUND plus one FACE_BOUND per hole. This is the standard AP214 encoding of a face with
 /// a hole; no bridge edge is introduced. A full cylindrical face has two boundaries of which neither
-/// encloses the other, so both are emitted as FACE_BOUND and the face carries no FACE_OUTER_BOUND,
-/// which ISO 10303-42 permits ("at most one", not "exactly one").
+/// encloses the other; its first rim is designated FACE_OUTER_BOUND anyway, to match what mainstream
+/// exporters emit - see <see cref="OuterBoundIndex"/>.
 /// </para>
 /// </remarks>
 public sealed class StepWriter
@@ -171,13 +171,20 @@ public sealed class StepWriter
     }
 
     /// <summary>
-    /// Index of the enclosing loop of a planar face, or -1 when the face has no outer bound.
-    /// Selected by area rather than by position, so that a reordering of <see cref="BrepFace.Loops"/>
+    /// Index of the loop to emit as FACE_OUTER_BOUND. For a planar face this is the enclosing loop,
+    /// selected by area rather than by position, so that a reordering of <see cref="BrepFace.Loops"/>
     /// cannot silently swap FACE_OUTER_BOUND and FACE_BOUND and turn the part inside out at the hole.
+    ///
+    /// On a full cylindrical face neither rim encloses the other, so ISO 10303-42 would permit emitting
+    /// both as FACE_BOUND and designating no outer bound ("at most one", not "exactly one"). We designate
+    /// the first rim anyway, because that is what mainstream exporters emit - OCCT picks one wire via
+    /// BRepTools::OuterWire and writes FACE_OUTER_BOUND for it even on a full cylinder - and a reader that
+    /// classifies bounds from the flag rather than from geometry would otherwise see a face with no outer
+    /// boundary at all. The choice between the two rims is arbitrary by construction, not by accident.
     /// </summary>
     private static int OuterBoundIndex(BrepFace face)
     {
-        if (face.Surface is not PlaneSurface plane) return -1;
+        if (face.Surface is not PlaneSurface plane) return face.Loops.Count > 0 ? 0 : -1;
 
         var normal = Vector3.Normalize(face.SameSense ? plane.Normal : -plane.Normal);
         var (u, v) = Basis.Orthonormal(normal);
@@ -266,6 +273,14 @@ public sealed class StepWriter
     // onto zero so that a mirrored direction does not read as "-0.0". Never exponent notation.
     private static string Real(double value)
     {
+        // Last line of defence, at the one point every number in the file passes through. The validator
+        // checks plane normals, cylinder axes, vertex positions and circle centres, but it never reads a
+        // RefDirection or a LineCurve.Direction - a non-finite one of those would otherwise emit
+        // DIRECTION((NaN,NaN,NaN)), which is not legal STEP. Positive form: any comparison with NaN is
+        // false, so "if (invalid) throw" would let NaN through.
+        if (!double.IsFinite(value))
+            throw new ArgumentOutOfRangeException(nameof(value), value, "A non-finite number cannot be written to a STEP file.");
+
         double rounded = Math.Round(value, 6);
         if (rounded == 0) rounded = 0d;
         return rounded.ToString("0.0#####", CultureInfo.InvariantCulture);
@@ -274,7 +289,20 @@ public sealed class StepWriter
     // In an ISO 10303-21 string a quote is doubled and a backslash, which introduces the control
     // directives, is doubled too; a lone backslash would make the literal ambiguous. Neither
     // replacement can produce the other's character, so the order between them does not matter.
-    // Control characters and non-ASCII text are NOT encoded: the caller owns the product name.
-    private static string Escape(string text) =>
-        text.Replace("\\", "\\\\", StringComparison.Ordinal).Replace("'", "''", StringComparison.Ordinal);
+    //
+    // Anything outside printable ASCII is REJECTED rather than passed through. A newline in the product
+    // name splits a STEP line in two and structurally breaks the file, and a non-ASCII character is not
+    // conformant Part 21 (which requires the \X2\....\X0\ encoding we do not implement). Both failures
+    // produce a corrupt file rather than an exception, and the name reaches here from user-entered text,
+    // so rejecting loudly at the boundary is the only safe default.
+    private static string Escape(string text)
+    {
+        foreach (char c in text)
+            if (c < ' ' || c > '~')
+                throw new ArgumentException(
+                    $"The product name contains a character that cannot be written to a STEP file: U+{(int)c:X4}.",
+                    nameof(text));
+
+        return text.Replace("\\", "\\\\", StringComparison.Ordinal).Replace("'", "''", StringComparison.Ordinal);
+    }
 }

@@ -158,6 +158,65 @@ public class StepWriterTests
         Assert.Contains("counterclockwise", error.Message, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// H10. Neither rim of a full cylinder encloses the other, so the standard would permit emitting both
+    /// as FACE_BOUND. We designate one anyway, to match what mainstream exporters produce and so that a
+    /// reader classifying bounds from the flag never sees a face with no outer boundary. Every face in the
+    /// file must carry exactly one FACE_OUTER_BOUND: four faces, four outer bounds, four plain bounds.
+    /// </summary>
+    [Fact]
+    public void Every_face_designates_exactly_one_outer_bound()
+    {
+        var solid = TubeBuilder.Build(Vector3.Zero, Vector3.UnitZ, 0.02f, 0.01f, -0.015f, 0.015f);
+
+        var step = StepWriter.Write(solid, "tube", Timestamp);
+
+        Assert.Equal(4, StepSyntaxChecker.Count(step, "ADVANCED_FACE"));
+        Assert.Equal(4, StepSyntaxChecker.Count(step, "FACE_OUTER_BOUND"));
+        Assert.Equal(4, StepSyntaxChecker.Count(step, "FACE_BOUND"));
+    }
+
+    /// <summary>
+    /// A newline in the product name would split a STEP line in two and break the file structurally, and a
+    /// non-ASCII character is not conformant Part 21. Both corrupt the file rather than raising, and the
+    /// name comes from user-entered text, so the writer has to reject them at the boundary.
+    /// </summary>
+    [Theory]
+    [InlineData("my\nscan")]
+    [InlineData("pièce")]
+    [InlineData("tab\there")]
+    public void Write_rejects_a_product_name_it_cannot_encode(string productName)
+    {
+        var solid = TubeBuilder.Build(Vector3.Zero, Vector3.UnitZ, 0.02f, null, 0f, 0.01f);
+
+        Assert.Throws<ArgumentException>(() => StepWriter.Write(solid, productName, Timestamp));
+    }
+
+    /// <summary>
+    /// H1, and the case the test above does NOT reach. Flipping SameSense alone leaves every loop winding
+    /// the wrong way round its own face normal, so the per-face winding rule rejects it and the signed
+    /// volume is never consulted. Reversing each loop as well makes the two sign flips cancel: topology is
+    /// sound, every face winds correctly against its own normal, and only the enclosed volume reveals that
+    /// the shell points into the material. This is the one test that exercises the volume check.
+    /// </summary>
+    [Fact]
+    public void Write_rejects_a_shell_that_encloses_negative_volume()
+    {
+        var cube = Cube();
+        var inverted = new BrepSolid(cube.Faces.Select(f => new BrepFace(
+            f.Surface,
+            f.Loops.Select(Reversed).ToList(),
+            !f.SameSense)).ToList());
+
+        var error = Assert.Throws<ArgumentException>(() => StepWriter.Write(inverted, "cube", Timestamp));
+
+        Assert.Equal("solid", error.ParamName);
+        Assert.Contains("non-positive volume", error.Message, StringComparison.Ordinal);
+    }
+
+    private static BrepLoop Reversed(BrepLoop loop) =>
+        new(loop.Edges.Reverse().Select(e => new OrientedEdge(e.Edge, !e.SameSense)).ToList());
+
     /// <summary>H1. A face whose loops do not lie on its own plane is not emitted.</summary>
     [Fact]
     public void Write_rejects_a_face_whose_loops_are_off_its_plane()
