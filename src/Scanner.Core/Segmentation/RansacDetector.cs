@@ -93,8 +93,19 @@ public static class RansacDetector
     /// large numbers of inliers in a few narrow sectors separated by gaps far wider than its own sampling
     /// explains; requiring one wide span rejects it regardless of object size and noise, while a real cylinder
     /// sweeps the full circle. The gaps have to stay wide relative to the bands for that to hold, so a prism
-    /// with many faces is the weak case: at six faces and a 25° normal threshold the bands are 50° with 10°
-    /// between them, close enough to be bridged. Raise <see cref="RansacOptions.MinCoverageBins"/> there.
+    /// with many faces is the weak case.
+    ///
+    /// KNOWN HOLE, six faces at the Draft profile's 25° normal threshold: the bands are 50° with 10° between
+    /// them. That fills 60 of the 72 bins, which sets the bridging tolerance at ceil(72/60) = 2 bins - exactly
+    /// the gap width - so every gap is bridged and the candidate reads a full 360°. <see cref="MinCoverageBins"/>
+    /// CANNOT rescue this: <see cref="LongestOccupiedRun"/> is clamped to <see cref="CoverageBins"/>, so the
+    /// hex already scores the maximum and the only value that would reject it also rejects every genuine
+    /// cylinder. Fine (20°) is unaffected - its 20° gaps are 4 bins against the same tolerance of 2.
+    /// The fix is a finer sweep (<see cref="CoverageBins"/> ≥ 109, i.e. bins ≤ 3.3°, which drops the hex's
+    /// tolerance to 2 bins against a 10-bin gap) together with a minimum-occupancy guard replacing the cap
+    /// inside <see cref="LongestOccupiedRun"/>, or a discriminator that does not rely on gap width at all -
+    /// on a real cylinder the signed radial residual is zero-mean, while on a tangent band it is one-sided
+    /// and quadratic in azimuth, which separates the two at any sampling density.
     /// </summary>
     private static int Score(PointCloud cloud, List<int> remaining, Primitive shape, RansacOptions options, float cosThreshold)
     {

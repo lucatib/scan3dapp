@@ -71,10 +71,15 @@ public class RansacDetectorTests
         var planes = shapes.Select(s => s.Primitive).OfType<PlanePrimitive>().ToList();
         var cylinder = Assert.Single(shapes.Select(s => s.Primitive).OfType<CylinderPrimitive>());
         Assert.Equal(6, planes.Count);
-        Assert.InRange(cylinder.Radius, 0.015f, 0.025f);
         foreach (var axis in new[] { Vector3.UnitX, Vector3.UnitY, Vector3.UnitZ })
         foreach (float sign in new[] { -1f, 1f })
             Assert.Contains(planes, p => Vector3.Dot(p.Normal, axis * sign) > MathF.Cos(2f * MathF.PI / 180f));
+
+        // Pinned to the FALLBACK's radius, not to a range wide enough to admit the least-squares fit as well.
+        // The band's refined span clears the default gate by a single bin, so a future change could stop
+        // exercising the fallback while every assertion above still passed - the test would go quietly vacuous
+        // while still claiming to cover the fallback. 0.0182 is the unrefined candidate; 0.0200 is the fit.
+        Assert.InRange(cylinder.Radius, 0.017f, 0.019f);
     }
 
     /// <summary>
