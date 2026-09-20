@@ -18,6 +18,10 @@ public sealed record RansacOptions(
     int IterationsPerShape = 1500,
     int MaxShapes = 20,
     float MaxCylinderRadius = 0.5f,
-    int Seed = 1);
+    int Seed = 1,
+    // Angular span, in 5° bins of the sweep around its own axis, that a cylinder candidate's inliers must
+    // cover; 18 bins = 90°. What the span guarantees is "no gap longer than the candidate's own mean bin
+    // spacing", not "every bin occupied" - see RansacDetector.MeasureCoverage.
+    int MinCoverageBins = 18);
 
 public sealed record DetectedShape(Primitive Primitive, int[] InlierIndices);

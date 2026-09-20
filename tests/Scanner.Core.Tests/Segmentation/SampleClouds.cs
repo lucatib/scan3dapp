@@ -4,7 +4,7 @@ using Scanner.Core.Segmentation;
 
 namespace Scanner.Core.Tests.Segmentation;
 
-/// <summary>Point clouds sampled directly on known shapes, with exact outward normals.</summary>
+/// <summary>Point clouds sampled directly on known shapes, with exact outward normals unless noise is asked for.</summary>
 internal static class SampleClouds
 {
     public static PointCloud Cube(float half, float spacing, float noise, int seed)
@@ -27,7 +27,7 @@ internal static class SampleClouds
         return new PointCloud(points.ToArray(), normals.ToArray());
     }
 
-    public static PointCloud Tube(float outer, float inner, float height, float spacing, float noise, int seed)
+    public static PointCloud Tube(float outer, float inner, float height, float spacing, float noise, int seed, float normalNoiseDegrees = 0f)
     {
         var rng = new Random(seed);
         var points = new List<Vector3>();
@@ -42,7 +42,7 @@ internal static class SampleClouds
                 for (float z = -height / 2; z <= height / 2; z += spacing)
                 {
                     points.Add(radial * (radius + noise * Gaussian(rng)) + new Vector3(0, 0, z));
-                    normals.Add(radial * sign);
+                    normals.Add(Tilt(radial * sign, normalNoiseDegrees, rng));
                 }
             }
         }
@@ -53,12 +53,52 @@ internal static class SampleClouds
             float r = MathF.Sqrt(x * x + y * y);
             if (r < inner || r > outer) continue;
             points.Add(new Vector3(x, y, side * height / 2 + noise * Gaussian(rng)));
-            normals.Add(new Vector3(0, 0, side));
+            normals.Add(Tilt(new Vector3(0, 0, side), normalNoiseDegrees, rng));
         }
         return new PointCloud(points.ToArray(), normals.ToArray());
     }
 
-    private static float Gaussian(Random rng)
+    /// <summary>
+    /// A cylindrical band that sweeps only <paramref name="arcDegrees"/> of its circle, axis along Z. With
+    /// noisy normals the two-point candidate a RANSAC round draws lands slightly off the true axis, so its
+    /// measured angular span differs from the span the least-squares refinement ends up with.
+    /// </summary>
+    public static PointCloud PartialCylinder(float radius, float arcDegrees, float height, float spacing, float noise, int seed, float normalNoiseDegrees = 0f)
+    {
+        var rng = new Random(seed);
+        var points = new List<Vector3>();
+        var normals = new List<Vector3>();
+        int steps = (int)(arcDegrees * MathF.PI / 180f * radius / spacing);
+        for (int i = 0; i <= steps; i++)
+        {
+            float theta = arcDegrees * MathF.PI / 180f * i / steps;
+            var radial = new Vector3(MathF.Cos(theta), MathF.Sin(theta), 0);
+            for (float z = -height / 2; z <= height / 2; z += spacing)
+            {
+                points.Add(radial * (radius + noise * Gaussian(rng)) + new Vector3(0, 0, z));
+                normals.Add(Tilt(radial, normalNoiseDegrees, rng));
+            }
+        }
+        return new PointCloud(points.ToArray(), normals.ToArray());
+    }
+
+    public static PointCloud Translate(PointCloud cloud, Vector3 delta) =>
+        new(cloud.Points.Select(p => p + delta).ToArray(), cloud.Normals.ToArray());
+
+    public static PointCloud Concat(PointCloud a, PointCloud b) =>
+        new(a.Points.Concat(b.Points).ToArray(), a.Normals.Concat(b.Normals).ToArray());
+
+    /// <summary>Tilts a unit normal by a uniformly random angle in [0, degrees] about a uniformly random direction.</summary>
+    internal static Vector3 Tilt(Vector3 n, float degrees, Random rng)
+    {
+        if (degrees <= 0) return n;
+        var (u, v) = Basis.Orthonormal(n);
+        float phi = (float)(2 * Math.PI * rng.NextDouble());
+        float tilt = degrees * MathF.PI / 180f * (float)rng.NextDouble();
+        return Vector3.Normalize(n * MathF.Cos(tilt) + (u * MathF.Cos(phi) + v * MathF.Sin(phi)) * MathF.Sin(tilt));
+    }
+
+    internal static float Gaussian(Random rng)
     {
         double u1 = 1.0 - rng.NextDouble();
         double u2 = rng.NextDouble();

@@ -34,10 +34,23 @@ public static class PrimitiveFitter
         foreach (int i in indices) AddOuter(normalMoments, cloud.Normals[i]);
         var (values, vectors) = SymmetricEigen3.Solve(normalMoments);
         // A cylinder's normals sweep the plane orthogonal to the axis, so the moment matrix is rank 2: the
-        // smallest eigenvalue (along the axis) is orders of magnitude below the second. For a planar or
-        // near-planar inlier set the normals are collinear instead, the two smallest eigenvalues are both
-        // negligible and equal, and Vectors[0] is an arbitrary direction. Require a clear relative gap.
-        if (values[0] >= 0.1 * values[1]) return null;
+        // smallest eigenvalue (along the axis) is far below the second, and the second is comparable to the
+        // largest. A planar inlier set is rank 1 instead and Vectors[0] is an arbitrary direction. Rank 1 has
+        // to be excluded on both counts, because either condition alone has a blind spot.
+        //
+        // The gap test rejects a plane whose normal error is isotropic, where the two smallest eigenvalues come
+        // out equal. Measured l0/l1: 0.92 for a patch with isotropic 3 deg normal jitter, against 2.5e-3 for a
+        // genuine cylinder with 5 deg jitter and 9.9e-3 at 10 deg.
+        //
+        // The scale test rejects what the gap test cannot. Anisotropic normal error - routine when normals come
+        // from a depth map, where the error along the scan lines differs from the error across them - shrinks
+        // l0 without making the patch any less flat, so l0/l1 slides under the gap threshold (measured 0.067 at
+        // 4:1) while the patch is still rank 1. It is also the sign-safe half: at exact degeneracy Jacobi
+        // returns l0 and l1 at +-1e-13 with arbitrary signs, and "negative >= positive" would accept the set.
+        // For normals spread over an arc of width w, l1/l2 is about w^2/12, so 1e-2 rejects anything sweeping
+        // less than ~20 deg; a flat patch measures 4.7e-4, while a cylinder wide enough to clear the detector's
+        // 90 deg coverage gate measures 0.23 - a 23x margin - and a full circle measures 1.0.
+        if (values[0] >= 0.1 * values[1] || values[1] <= 1e-2 * values[2]) return null;
         var axis = vectors[0];
         if (Vector3.Dot(axis, axisHint) < 0) axis = -axis;
 

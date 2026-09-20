@@ -13,9 +13,6 @@ public static class RansacDetector
     /// <summary>Bins of the 360° sweep around a cylinder axis used by the angular-coverage gate (5° each).</summary>
     private const int CoverageBins = 72;
 
-    /// <summary>A cylinder candidate must occupy a contiguous arc of at least this many bins (90°).</summary>
-    private const int MinCoverageBins = 18;
-
     public static IReadOnlyList<DetectedShape> Detect(PointCloud cloud, RansacOptions options)
     {
         var rng = new Random(options.Seed);
@@ -33,7 +30,7 @@ public static class RansacDetector
                     ? PlaneFromSample(cloud, remaining, rng)
                     : CylinderFromSample(cloud, remaining, rng, options);
                 if (candidate is null) continue;
-                int score = Score(cloud, remaining, candidate, options.DistanceThreshold, cosThreshold);
+                int score = Score(cloud, remaining, candidate, options, cosThreshold);
                 if (score > bestScore)
                 {
                     bestScore = score;
@@ -42,24 +39,33 @@ public static class RansacDetector
             }
             if (best is null || bestScore < options.MinInliers) break;
 
-            var inliers = CollectInliers(cloud, remaining, best, options.DistanceThreshold, cosThreshold);
+            // `best` scored above zero, so it passed the angular-coverage gate inside Score: it is always a
+            // valid shape to fall back on when refinement produces one that does not.
+            var accepted = best;
+            var acceptedInliers = CollectInliers(cloud, remaining, best, options.DistanceThreshold, cosThreshold);
+            var current = best;
+            var currentInliers = acceptedInliers;
             for (int pass = 0; pass < 2; pass++)
             {
-                var refined = PrimitiveFitter.Refine(best, cloud, inliers);
+                var refined = PrimitiveFitter.Refine(current, cloud, currentInliers);
                 if (refined is null) break;
-                // Refinement moves the surface, so it can shed more inliers than it gains. Keep it only when it
-                // does not lose any, otherwise stop refining and keep the better shape found so far.
-                var refinedInliers = CollectInliers(cloud, remaining, refined, options.DistanceThreshold, cosThreshold);
-                if (refinedInliers.Count < inliers.Count) break;
-                best = refined;
-                inliers = refinedInliers;
+                current = refined;
+                currentInliers = CollectInliers(cloud, remaining, refined, options.DistanceThreshold, cosThreshold);
+                // Refinement moves the surface, so it can shed more inliers than it gains, and it can rotate a
+                // cylinder axis until the inliers no longer sweep a real arc. Adopt a refined shape only when it
+                // keeps at least as many inliers as the best one so far and still passes the coverage gate;
+                // rejecting one costs a less refined shape, never the rest of the scan. The next pass still
+                // starts from the rejected shape, because a dip on one pass is often recovered on the next.
+                if (currentInliers.Count < acceptedInliers.Count) continue;
+                if (!HasAngularCoverage(current, cloud, currentInliers, options)) continue;
+                accepted = current;
+                acceptedInliers = currentInliers;
             }
-            if (inliers.Count < options.MinInliers) break;
-            // Refinement can turn an acceptable cylinder into one whose inliers no longer sweep a real arc.
-            if (!HasAngularCoverage(best, cloud, inliers)) break;
 
-            shapes.Add(new DetectedShape(best, inliers.ToArray()));
-            var taken = inliers.ToHashSet();
+            // No MinInliers re-check here: acceptedInliers starts at bestScore, which the loop above already
+            // required to be at least options.MinInliers, and it only ever grows.
+            shapes.Add(new DetectedShape(accepted, acceptedInliers.ToArray()));
+            var taken = acceptedInliers.ToHashSet();
             remaining.RemoveAll(taken.Contains);
         }
         return shapes;
@@ -84,53 +90,70 @@ public static class RansacDetector
     /// <summary>
     /// Inlier count of a candidate, or 0 when a cylinder candidate fails the angular-coverage gate. A flat face
     /// is tangent to any cylinder of comparable radius, so a candidate hugging the faces of a prism collects
-    /// large numbers of inliers in a few narrow sectors; requiring one contiguous arc rejects it regardless of
-    /// face count, object size and noise, while a real cylinder sweeps the full circle.
+    /// large numbers of inliers in a few narrow sectors separated by gaps far wider than its own sampling
+    /// explains; requiring one wide span rejects it regardless of object size and noise, while a real cylinder
+    /// sweeps the full circle. The gaps have to stay wide relative to the bands for that to hold, so a prism
+    /// with many faces is the weak case: at six faces and a 25° normal threshold the bands are 50° with 10°
+    /// between them, close enough to be bridged. Raise <see cref="RansacOptions.MinCoverageBins"/> there.
     /// </summary>
-    private static int Score(PointCloud cloud, List<int> remaining, Primitive shape, float distance, float cosThreshold)
+    private static int Score(PointCloud cloud, List<int> remaining, Primitive shape, RansacOptions options, float cosThreshold)
     {
         if (shape is not CylinderPrimitive cylinder)
-            return CountInliers(cloud, remaining, shape, distance, cosThreshold);
+            return CountInliers(cloud, remaining, shape, options.DistanceThreshold, cosThreshold);
 
-        var occupied = new bool[CoverageBins];
-        var (u, v) = Basis.Orthonormal(cylinder.Axis);
-        int count = 0;
-        foreach (int i in remaining)
-        {
-            if (!IsCylinderInlier(cylinder, cloud.Points[i], cloud.Normals[i], distance, cosThreshold)) continue;
-            count++;
-            MarkBin(occupied, cylinder, u, v, cloud.Points[i]);
-        }
-        return LongestOccupiedRun(occupied) >= MinCoverageBins ? count : 0;
+        var inliers = CollectInliers(cloud, remaining, cylinder, options.DistanceThreshold, cosThreshold);
+        return MeasureCoverage(cylinder, cloud, inliers) >= options.MinCoverageBins ? inliers.Count : 0;
     }
 
-    /// <summary>True for any non-cylinder; for a cylinder, true when its inliers sweep a long enough contiguous arc.</summary>
-    private static bool HasAngularCoverage(Primitive shape, PointCloud cloud, IReadOnlyList<int> indices)
-    {
-        if (shape is not CylinderPrimitive cylinder) return true;
+    /// <summary>True for any non-cylinder; for a cylinder, true when its inliers cover a wide enough span.</summary>
+    private static bool HasAngularCoverage(Primitive shape, PointCloud cloud, IReadOnlyList<int> indices, RansacOptions options) =>
+        shape is not CylinderPrimitive cylinder || MeasureCoverage(cylinder, cloud, indices) >= options.MinCoverageBins;
 
+    /// <summary>
+    /// Width, in 5° bins, of the widest angular span the given points cover around the cylinder axis.
+    /// Because sparse gaps inside a span are bridged (see <see cref="LongestOccupiedRun"/>), what the result
+    /// guarantees is "no gap wider than the candidate's own mean bin spacing anywhere inside the span", not
+    /// "every bin of the span occupied": an alternating occupied/empty pattern reads as a full 360°.
+    /// </summary>
+    private static int MeasureCoverage(CylinderPrimitive cylinder, PointCloud cloud, IReadOnlyList<int> indices)
+    {
         var occupied = new bool[CoverageBins];
         var (u, v) = Basis.Orthonormal(cylinder.Axis);
         foreach (int i in indices) MarkBin(occupied, cylinder, u, v, cloud.Points[i]);
-        return LongestOccupiedRun(occupied) >= MinCoverageBins;
+        return LongestOccupiedRun(occupied);
     }
 
+    /// <summary>Marks the bin holding the angle of <paramref name="p"/> around the axis; a point on the axis has none.</summary>
     private static void MarkBin(bool[] occupied, CylinderPrimitive cylinder, Vector3 u, Vector3 v, Vector3 p)
     {
         var radial = cylinder.RadialVector(p);
+        if (radial.Length() < 1e-9f) return;
         float angle = MathF.Atan2(Vector3.Dot(radial, v), Vector3.Dot(radial, u));
         int bin = (int)MathF.Floor((angle + MathF.PI) / (2 * MathF.PI) * occupied.Length);
         occupied[Math.Clamp(bin, 0, occupied.Length - 1)] = true;
     }
 
     /// <summary>
-    /// Longest run of consecutive occupied bins, treating the array as circular. A single empty bin is bridged
-    /// (and counted, since the arc is continuous in angle) so that sparse sampling does not split a genuine arc;
-    /// two or more consecutive empty bins break the run.
+    /// Longest run of occupied bins, treating the array as circular and bridging (and counting, since the arc
+    /// stays continuous in angle) gaps that the candidate's own sampling density already explains. With k of
+    /// the n bins occupied, evenly spread samples would sit ceil(n / k) bins apart, so a gap of up to that many
+    /// empty bins is sparsity and a longer one is a real absence of surface. A fixed one-bin tolerance instead
+    /// has a hard density cliff at r = 5.73 · spacing, below which the longest run collapses from the full
+    /// circle to a few bins: at ARCore surface spacing that would reject every bore under ~11 mm radius.
+    ///
+    /// The tolerance is also capped at k, so a run can never bridge more bins than the whole candidate has
+    /// occupied. Without that cap the density estimate inverts for a nearly empty circle - two occupied bins
+    /// 180° apart would license a 36-bin gap and read as a full 360° sweep.
     /// </summary>
     private static int LongestOccupiedRun(bool[] occupied)
     {
         int total = occupied.Length;
+        int occupiedCount = 0;
+        foreach (bool bin in occupied)
+            if (bin) occupiedCount++;
+        if (occupiedCount == 0) return 0;
+
+        int maxGap = Math.Min((total + occupiedCount - 1) / occupiedCount, occupiedCount);
         int best = 0, run = 0, gap = 0;
         for (int k = 0; k < 2 * total; k++)
         {
@@ -140,9 +163,9 @@ public static class RansacDetector
                 gap = 0;
                 if (run > best) best = run;
             }
-            else if (gap == 0 && run > 0)
+            else if (run > 0 && gap < maxGap)
             {
-                gap = 1;
+                gap++;
             }
             else
             {
