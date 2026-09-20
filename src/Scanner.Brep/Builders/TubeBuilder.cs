@@ -15,10 +15,22 @@ public static class TubeBuilder
 {
     public static BrepSolid Build(Vector3 axisPoint, Vector3 axis, float outerRadius, float? innerRadius, float zBottom, float zTop)
     {
-        if (zTop <= zBottom) throw new ArgumentException("zTop must be greater than zBottom.");
-        if (innerRadius is { } r && (r <= 0 || r >= outerRadius)) throw new ArgumentException("Invalid hole radius.");
+        // Every guard is written in positive form ("reject unless valid"): any comparison against NaN
+        // is false, so an "if (invalid) throw" phrasing would let NaN inputs through into the geometry.
+        float axisLength = axis.Length();
+        if (!float.IsFinite(axisLength) || axisLength < 1e-6f)
+            throw new ArgumentOutOfRangeException(nameof(axis), axis, "The axis must be finite and of non-negligible length.");
+        if (!(float.IsFinite(outerRadius) && outerRadius > 0))
+            throw new ArgumentOutOfRangeException(nameof(outerRadius), outerRadius, "The outer radius must be finite and strictly positive.");
+        if (innerRadius is { } r && !(float.IsFinite(r) && r > 0 && r < outerRadius))
+            throw new ArgumentOutOfRangeException(nameof(innerRadius), r, "The hole radius must be finite and within (0, outerRadius).");
+        if (!float.IsFinite(zBottom))
+            throw new ArgumentOutOfRangeException(nameof(zBottom), zBottom, "zBottom must be finite.");
+        if (!(float.IsFinite(zTop) && zTop > zBottom))
+            throw new ArgumentOutOfRangeException(nameof(zTop), zTop, "zTop must be finite and greater than zBottom.");
 
-        var a = Vector3.Normalize(axis);
+        // Divide by the length already validated above: Vector3.Normalize(Vector3.Zero) returns NaN silently.
+        var a = axis / axisLength;
         var (refDirection, _) = Basis.Orthonormal(a);
         var bottom = axisPoint + a * zBottom;
         var top = axisPoint + a * zTop;
@@ -37,8 +49,12 @@ public static class TubeBuilder
 
         if (innerRadius is { } inner)
         {
+            // Structurally a through-hole: the hole always spans the outer cylinder's bottom/top,
+            // so a blind or partially drilled hole cannot be expressed through this API.
             var innerBottom = Circle(bottom, a, refDirection, inner);
             var innerTop = Circle(top, a, refDirection, inner);
+            // The surface origin is `bottom` because a cylinder only needs any point on its axis, and
+            // the hole shares the outer cylinder's axis; it is not the hole's own centre or base point.
             faces.Add(new BrepFace(new CylinderSurface(bottom, a, refDirection, inner),
                 [Loop(innerBottom, false), Loop(innerTop, true)], sameSense: false));
             bottomLoops.Add(Loop(innerBottom, true));
