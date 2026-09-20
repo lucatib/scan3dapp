@@ -17,6 +17,9 @@ public static class TubeBuilder
     {
         // Every guard is written in positive form ("reject unless valid"): any comparison against NaN
         // is false, so an "if (invalid) throw" phrasing would let NaN inputs through into the geometry.
+        // LengthSquared is finite only when every component is, so this one test covers all three.
+        if (!float.IsFinite(axisPoint.LengthSquared()))
+            throw new ArgumentOutOfRangeException(nameof(axisPoint), axisPoint, "The axis point must be finite.");
         float axisLength = axis.Length();
         if (!float.IsFinite(axisLength) || axisLength < 1e-6f)
             throw new ArgumentOutOfRangeException(nameof(axis), axis, "The axis must be finite and of non-negligible length.");

@@ -142,6 +142,17 @@ public class TubeBuilderTests
     }
 
     [Fact]
+    public void Build_rejects_a_non_finite_axis_point()
+    {
+        // The caller derives the axis point from the same RANSAC fit as the axial extent, so it is
+        // no less likely to arrive non-finite — and it flows into every circle centre and surface origin.
+        Assert.Equal("axisPoint", RejectedParameter(() =>
+            TubeBuilder.Build(new Vector3(float.NaN, 0f, 0f), Axis, OuterRadius, InnerRadius, ZBottom, ZTop)));
+        Assert.Equal("axisPoint", RejectedParameter(() =>
+            TubeBuilder.Build(new Vector3(0f, float.PositiveInfinity, 0f), Axis, OuterRadius, InnerRadius, ZBottom, ZTop)));
+    }
+
+    [Fact]
     public void Build_rejects_a_degenerate_or_non_finite_axis()
     {
         Assert.Equal("axis", RejectedParameter(() =>
