@@ -119,4 +119,4 @@ still load.
 
 ## License
 
-No license has been chosen yet, so all rights are reserved by default.
+[MIT](LICENSE) © 2026 Luca Tiburzio
