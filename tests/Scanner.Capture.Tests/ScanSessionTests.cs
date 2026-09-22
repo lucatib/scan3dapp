@@ -60,7 +60,7 @@ public sealed class ScanSessionTests : IDisposable
         writer.Complete(new Vector3(0.1f, 0.2f, 0.3f), 0.05f, [Vector3.One, Vector3.Zero]);
 
         var manifest = ScanSessionReader.ReadManifest(dir);
-        Assert.Equal(1, manifest.Version);
+        Assert.Equal(2, manifest.Version);
         Assert.Equal("s1", manifest.Id);
         Assert.Equal("Pixel 8", manifest.Device);
         Assert.Equal(2, manifest.FrameCount);
@@ -72,6 +72,49 @@ public sealed class ScanSessionTests : IDisposable
         Assert.Equal(2, frames.Count);
         Assert.Equal(0.2, frames[1].Frame.TimestampSeconds);
         Assert.NotNull(frames[1].Confidence);
+        Assert.Equal(0, manifest.PhotoCount);
+        Assert.Empty(ScanSessionReader.ReadPhotos(dir));
+    }
+
+    [Fact]
+    public void Session_round_trips_photos_with_their_pose_and_intrinsics()
+    {
+        var dir = Path.Combine(_root, "s3");
+        var writer = new ScanSessionWriter(dir, "s3", "test");
+        var intrinsics = new CameraIntrinsics(640, 480, 500f, 520f, 310f, 250f);
+        var pose = Matrix4x4.CreateRotationY(0.4f) * Matrix4x4.CreateTranslation(0.1f, 0.2f, 0.3f);
+
+        writer.AppendPhoto([1, 2, 3], new ScanPhotoData(intrinsics, pose, 1.5, 90));
+        writer.AppendPhoto([4, 5], new ScanPhotoData(intrinsics, Matrix4x4.Identity, 2.5, 0));
+        writer.Complete(null, null, [Vector3.One]);
+
+        Assert.Equal(2, ScanSessionReader.ReadManifest(dir).PhotoCount);
+        var photos = ScanSessionReader.ReadPhotos(dir);
+        Assert.Equal(2, photos.Count);
+        Assert.Equal([1, 2, 3], File.ReadAllBytes(photos[0].ImagePath));
+        Assert.Equal(1, photos[0].Photo.Index);
+        Assert.Equal(1.5, photos[0].Photo.TimestampSeconds);
+        Assert.Equal(90, photos[0].Photo.RotationDegrees);
+        Assert.Equal(intrinsics, photos[0].Photo.Intrinsics);
+        Assert.Equal(pose, photos[0].Photo.ToPose());
+        Assert.Equal(2, photos[1].Photo.Index);
+    }
+
+    [Fact]
+    public void A_photo_whose_picture_is_missing_is_skipped_rather_than_failing_the_session()
+    {
+        var dir = Path.Combine(_root, "s4");
+        var writer = new ScanSessionWriter(dir, "s4", "test");
+        writer.AppendPhoto([1], new ScanPhotoData(default, Matrix4x4.Identity, 0, 0));
+        writer.AppendPhoto([2], new ScanPhotoData(default, Matrix4x4.Identity, 1, 0));
+
+        // What a process killed between the two writes leaves behind, and what a stray file in the folder looks like.
+        File.Delete(Path.Combine(dir, "photos", "000001.jpg"));
+        File.WriteAllText(Path.Combine(dir, "photos", "000003.json"), "{ not json");
+        File.WriteAllBytes(Path.Combine(dir, "photos", "000003.jpg"), [3]);
+
+        var photos = ScanSessionReader.ReadPhotos(dir);
+        Assert.Equal(2, Assert.Single(photos).Photo.Index);
     }
 
     [Fact]
@@ -80,6 +123,7 @@ public sealed class ScanSessionTests : IDisposable
         var dir = Path.Combine(_root, "s2");
         var writer = new ScanSessionWriter(dir, "s2", "test");
         writer.AppendFrame(Frame(0.5f, 0), null);
+        writer.AppendPhoto([7, 7], new ScanPhotoData(default, Matrix4x4.Identity, 0, 270));
         writer.Complete(null, null, [Vector3.One]);
         var archive = Path.Combine(_root, "s2.scan");
 
@@ -90,5 +134,7 @@ public sealed class ScanSessionTests : IDisposable
         Assert.Contains("manifest.json", names);
         Assert.Contains("points.ply", names);
         Assert.Contains("frames/000001.frame", names);
+        Assert.Contains("photos/000001.jpg", names);
+        Assert.Contains("photos/000001.json", names);
     }
 }

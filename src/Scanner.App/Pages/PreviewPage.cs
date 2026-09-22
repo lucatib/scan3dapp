@@ -4,17 +4,27 @@ using Scanner.Capture.Sessions;
 
 namespace Scanner.App.Pages;
 
-/// <summary>Shows a completed scan as an orbitable 3D point cloud.</summary>
+/// <summary>Shows a completed scan: an orbitable 3D point cloud, and the camera photos taken while it ran.</summary>
 [QueryProperty(nameof(SessionId), "id")]
 public sealed class PreviewPage : ContentPage
 {
     private readonly SessionStore _store;
     private readonly PointCloudView _view = new();
+    private readonly Image _photo = new() { Aspect = Aspect.AspectFit, BackgroundColor = Colors.Black, IsVisible = false };
     private readonly Label _info = new() { FontSize = 14 };
+    private readonly Button _cloudMode = new() { Text = "3D", IsEnabled = false };
+    private readonly Button _photoMode = new() { Text = "Photos", IsEnabled = false };
+    private readonly Button _previous = new() { Text = "‹", WidthRequest = 56 };
+    private readonly Button _next = new() { Text = "›", WidthRequest = 56 };
+    private readonly Label _photoInfo = new() { FontSize = 14, VerticalTextAlignment = TextAlignment.Center };
+    private readonly HorizontalStackLayout _photoNav;
 
     /// <summary>Bottom row, shared with the action buttons added in a later task.</summary>
     private readonly VerticalStackLayout _panel;
 
+    private IReadOnlyList<(ScanPhoto Photo, string ImagePath)> _photos = [];
+    private int _index;
+    private bool _showingPhotos;
     private string? _loadedId;
     private Window? _window;
 
@@ -22,11 +32,30 @@ public sealed class PreviewPage : ContentPage
     {
         _store = store;
         Title = "Preview";
-        _panel = new VerticalStackLayout { Padding = 12, Spacing = 8, Children = { _info } };
+        _cloudMode.Clicked += (_, _) => ShowPhotos(false);
+        _photoMode.Clicked += (_, _) => ShowPhotos(true);
+        _previous.Clicked += (_, _) => Step(-1);
+        _next.Clicked += (_, _) => Step(1);
+
+        _photoNav = new HorizontalStackLayout
+        {
+            Spacing = 12, IsVisible = false, Children = { _previous, _photoInfo, _next },
+        };
+        _panel = new VerticalStackLayout
+        {
+            Padding = 12, Spacing = 8,
+            Children =
+            {
+                _info,
+                new HorizontalStackLayout { Spacing = 12, Children = { _cloudMode, _photoMode } },
+                _photoNav,
+            },
+        };
         Content = new Grid
         {
             RowDefinitions = { new RowDefinition(GridLength.Star), new RowDefinition(GridLength.Auto) },
-            Children = { _view, _panel },
+            // The photo sits over the cloud in the same cell; only one of the two is ever visible.
+            Children = { _view, _photo, _panel },
         };
         Grid.SetRow(_panel, 1);
     }
@@ -43,7 +72,7 @@ public sealed class PreviewPage : ContentPage
             window.Stopped += OnWindowStopped;
             window.Resumed += OnWindowResumed;
         }
-        _view.Resume();
+        ResumeCloud();
         await LoadAsync();
     }
 
@@ -63,11 +92,17 @@ public sealed class PreviewPage : ContentPage
         _info.Text = "Loading…";
         try
         {
-            var (manifest, points) = await Task.Run(() =>
-                (ScanSessionReader.ReadManifest(directory), ScanSessionReader.ReadPoints(directory)));
+            var (manifest, points, photos) = await Task.Run(() => (
+                ScanSessionReader.ReadManifest(directory),
+                ScanSessionReader.ReadPoints(directory),
+                ScanSessionReader.ReadPhotos(directory)));
             _view.Points = points;
-            _info.Text = $"{points.Length:N0} points · {manifest.FrameCount} frames · {manifest.CreatedUtc.LocalDateTime:g}\n"
-                         + "Drag to rotate, pinch to zoom.";
+            _photos = photos;
+            _index = 0;
+            _photoMode.IsEnabled = photos.Count > 0;
+            _info.Text = $"{points.Length:N0} points · {manifest.FrameCount} frames · {photos.Count} photos"
+                         + $" · {manifest.CreatedUtc.LocalDateTime:g}\nDrag to rotate, pinch to zoom.";
+            UpdatePhoto();
         }
         catch (Exception ex)
         {
@@ -75,6 +110,51 @@ public sealed class PreviewPage : ContentPage
             // else would become an unobserved async void exception and take the process down with it.
             _info.Text = $"Could not load the scan: {ex.Message}";
         }
+    }
+
+    private void ShowPhotos(bool photos)
+    {
+        if (photos && _photos.Count == 0) return;
+        _showingPhotos = photos;
+        _photo.IsVisible = photos;
+        _view.IsVisible = !photos;
+        _photoNav.IsVisible = photos;
+        _cloudMode.IsEnabled = photos;
+        _photoMode.IsEnabled = !photos;
+        // Hiding the surface alone would leave the render thread spinning on a cloud nobody can see.
+        if (photos) _view.Pause();
+        else _view.Resume();
+        UpdatePhoto();
+    }
+
+    private void Step(int delta)
+    {
+        if (_photos.Count == 0) return;
+        _index = ((_index + delta) % _photos.Count + _photos.Count) % _photos.Count;
+        UpdatePhoto();
+    }
+
+    private void UpdatePhoto()
+    {
+        _previous.IsEnabled = _next.IsEnabled = _photos.Count > 1;
+        if (_photos.Count == 0)
+        {
+            _photo.Source = null;
+            _photoInfo.Text = "No photos in this scan.";
+            return;
+        }
+
+        var (photo, path) = _photos[_index];
+        _photo.Source = ImageSource.FromFile(path);
+        // The intrinsics describe the sensor image, so this is the capture size however the phone was held - and
+        // it is worth showing: it is set by the camera configuration ARCore picks, not by anything in this app.
+        _photoInfo.Text = $"{_index + 1} / {_photos.Count}  ·  {photo.Intrinsics.Width}×{photo.Intrinsics.Height}";
+    }
+
+    /// <summary>Restarts the cloud's render thread unless the photos are the thing on screen.</summary>
+    private void ResumeCloud()
+    {
+        if (!_showingPhotos) _view.Resume();
     }
 
     private void DetachWindow()
@@ -87,5 +167,5 @@ public sealed class PreviewPage : ContentPage
 
     private void OnWindowStopped(object? sender, EventArgs e) => _view.Pause();
 
-    private void OnWindowResumed(object? sender, EventArgs e) => _view.Resume();
+    private void OnWindowResumed(object? sender, EventArgs e) => ResumeCloud();
 }

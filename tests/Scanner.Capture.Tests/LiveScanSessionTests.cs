@@ -124,6 +124,58 @@ public sealed class LiveScanSessionTests : IDisposable
     }
 
     [Fact]
+    public void Photos_are_throttled_by_interval_and_capped()
+    {
+        var session = NewSession(new LiveScanOptions(PhotoIntervalSeconds: 0.5, MaxPhotos: 3));
+        Assert.False(session.ShouldCapturePhoto(0)); // not recording yet
+        session.RequestStart();
+        session.SetTarget(Vector3.Zero, null);
+
+        Assert.True(session.ShouldCapturePhoto(10.0));
+        Assert.False(session.ShouldCapturePhoto(10.3));
+        Assert.True(session.ShouldCapturePhoto(10.6));
+        Assert.True(session.ShouldCapturePhoto(11.2));
+        // The cap counts what was promised, not what was written: none of the three above got as far as AddPhoto.
+        Assert.False(session.ShouldCapturePhoto(20.0));
+
+        session.Pause();
+        Assert.False(session.ShouldCapturePhoto(30.0));
+    }
+
+    [Fact]
+    public void AddPhoto_records_the_photo_and_the_manifest_counts_it()
+    {
+        var session = NewSession();
+        session.RequestStart();
+        session.SetTarget(Vector3.Zero, null);
+        session.Integrate(FlatFrame(0), null);
+
+        Assert.True(session.AddPhoto([1, 2, 3], new ScanPhotoData(default, Matrix4x4.Identity, 0.5, 90)));
+        Assert.Equal(1, session.PhotoCount);
+
+        session.Complete();
+        Assert.Equal(1, ScanSessionReader.ReadManifest(_dir).PhotoCount);
+        var photo = Assert.Single(ScanSessionReader.ReadPhotos(_dir));
+        Assert.Equal(90, photo.Photo.RotationDegrees);
+        Assert.Equal([1, 2, 3], File.ReadAllBytes(photo.ImagePath));
+    }
+
+    // The JPEG is encoded off the render thread, so one can still be in flight when Finish is pressed. It must be
+    // dropped rather than land in a folder whose manifest is already written and no longer counts it.
+    [Fact]
+    public void AddPhoto_after_completion_is_ignored()
+    {
+        var session = NewSession();
+        session.RequestStart();
+        session.SetTarget(Vector3.Zero, null);
+        session.Complete();
+
+        Assert.False(session.AddPhoto([1], new ScanPhotoData(default, Matrix4x4.Identity, 0, 0)));
+        Assert.Equal(0, session.PhotoCount);
+        Assert.Empty(ScanSessionReader.ReadPhotos(_dir));
+    }
+
+    [Fact]
     public void Integrate_after_completion_is_ignored()
     {
         var session = NewSession();

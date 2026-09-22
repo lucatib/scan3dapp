@@ -89,7 +89,7 @@ public sealed class ArScanViewHandler : ViewHandler<ArScanView, GLSurfaceView>
         {
             var virtualView = CurrentView;
             virtualView?.ReportStatus(new ArScanStatus("Unavailable", virtualView.Session?.State ?? LiveScanState.Idle,
-                0, 0, ex.Message));
+                0, 0, 0, ex.Message));
         }
     }
 

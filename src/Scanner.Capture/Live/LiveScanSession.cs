@@ -11,13 +11,15 @@ public sealed record LiveScanOptions(
     float RegionRadius = 0.30f,
     double IntegrationIntervalSeconds = 0.2,
     DepthFilter? Filter = null,
-    int MinIsolatedPoints = 200);
+    int MinIsolatedPoints = 200,
+    double PhotoIntervalSeconds = 1.0,
+    int MaxPhotos = 60);
 
 public sealed record LiveScanResult(Vector3[] AllPoints, Vector3[] PiecePoints, bool Isolated);
 
 /// <summary>
 /// Platform-independent state of one live scan: throttles depth integration, accumulates points inside the
-/// region around the target, records frames, and isolates the piece on completion.
+/// region around the target, records frames and camera photos, and isolates the piece on completion.
 /// <see cref="Integrate"/> runs on one worker thread at a time; <see cref="SnapshotPoints"/> may run concurrently
 /// on the render thread; state methods run on the UI/render thread.
 /// <see cref="State"/> and <see cref="FrameCount"/> are read several times a second on the UI thread and never
@@ -37,7 +39,15 @@ public sealed class LiveScanSession
 
     private volatile LiveScanState _state = LiveScanState.Idle;
     private double _lastIntegration = double.NegativeInfinity;
+    private double _lastPhoto = double.NegativeInfinity;
     private int _frameCount;
+
+    /// <summary>Photos promised by <see cref="ShouldCapturePhoto"/>, which is what the cap counts: encoding one
+    /// takes long enough that several can be in flight, and counting only the written ones would let a burst
+    /// sail past <see cref="LiveScanOptions.MaxPhotos"/>. Guarded by <see cref="_gate"/>.</summary>
+    private int _photosReserved;
+
+    private int _photoCount;
 
     public LiveScanSession(ScanSessionWriter writer, LiveScanOptions? options = null)
     {
@@ -56,6 +66,9 @@ public sealed class LiveScanSession
 
     /// <summary>Frames written so far; published only after the frame is on disk.</summary>
     public int FrameCount => Volatile.Read(ref _frameCount);
+
+    /// <summary>Photos written so far; published only after the picture and its metadata are on disk.</summary>
+    public int PhotoCount => Volatile.Read(ref _photoCount);
 
     /// <summary>Idle → WaitingForTarget (the renderer then picks the target); Paused → Recording.</summary>
     public void RequestStart()
@@ -106,6 +119,35 @@ public sealed class LiveScanSession
             if (_state != LiveScanState.Recording) return false;
             if (timestampSeconds - _lastIntegration < Options.IntegrationIntervalSeconds) return false;
             _lastIntegration = timestampSeconds;
+            return true;
+        }
+    }
+
+    /// <summary>True when recording, the photo interval has elapsed and the cap has room. Reserves the slot, so
+    /// a caller that asks must go on to call <see cref="AddPhoto"/> or forfeit it.</summary>
+    public bool ShouldCapturePhoto(double timestampSeconds)
+    {
+        lock (_gate)
+        {
+            if (_state != LiveScanState.Recording) return false;
+            if (_photosReserved >= Options.MaxPhotos) return false;
+            if (timestampSeconds - _lastPhoto < Options.PhotoIntervalSeconds) return false;
+            _lastPhoto = timestampSeconds;
+            _photosReserved++;
+            return true;
+        }
+    }
+
+    /// <summary>Records one camera photo. Returns false once the scan is completed, exactly as <see cref="Integrate"/>
+    /// does: the JPEG is encoded off the render thread, so it can arrive after the user has pressed Finish.</summary>
+    public bool AddPhoto(byte[] jpeg, ScanPhotoData photo)
+    {
+        // The same write gate as the frames, so a photo cannot land in a session whose manifest is already written.
+        lock (_writeGate)
+        {
+            if (_state == LiveScanState.Completed) return false;
+            _writer.AppendPhoto(jpeg, photo);
+            Volatile.Write(ref _photoCount, _writer.PhotoCount);
             return true;
         }
     }

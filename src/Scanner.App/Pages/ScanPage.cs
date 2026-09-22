@@ -185,6 +185,7 @@ public sealed class ScanPage : ContentPage
     {
         if (_scan is null || _finishing || _scan.State == LiveScanState.Completed) return;
         _status.Text = $"{status.Tracking} · {status.State} · {status.PointCount:N0} points · {status.FrameCount} frames"
+                       + $" · {status.PhotoCount} photos"
                        + (status.Message is { } message ? $"\n{message}" : "");
         UpdateButtons();
     }

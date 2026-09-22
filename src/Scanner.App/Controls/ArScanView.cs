@@ -3,7 +3,8 @@ using Scanner.Capture.Live;
 namespace Scanner.App.Controls;
 
 /// <summary>Snapshot of the AR scan for the UI, raised a few times per second.</summary>
-public sealed record ArScanStatus(string Tracking, LiveScanState State, int PointCount, int FrameCount, string? Message);
+public sealed record ArScanStatus(
+    string Tracking, LiveScanState State, int PointCount, int FrameCount, int PhotoCount, string? Message);
 
 /// <summary>Full-screen AR camera view that feeds depth frames into <see cref="Session"/> and draws its points.</summary>
 public sealed class ArScanView : View
