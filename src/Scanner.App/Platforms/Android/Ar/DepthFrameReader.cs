@@ -51,7 +51,7 @@ internal sealed class DepthFrameReader
             long timestamp = frame.Timestamp;
             long depthTimestamp = depthImage.Timestamp;
 
-            // Fast path: the depth image carries this camera frame's timestamp, so the pose below is exactly its own.
+            // Fast path: the depth image carries this camera frame's timestamp.
             // Fallback: ARCore documents freshness as "differs from the previously acquired depth image", which is
             // the only test that holds on a device whose raw depth images do not carry the camera frame timestamp.
             // Without it the equality alone would reject every frame and the scan would record nothing, silently.
@@ -70,6 +70,10 @@ internal sealed class DepthFrameReader
             byte[] confidence = ReadBytes(confidenceImage, width, height);
 
             // Sensor-aligned camera pose (not the display-oriented one): the depth image is in sensor orientation.
+            // The current frame's pose even when the depth timestamp is older: ARCore renders every raw depth image
+            // into the current frame's viewpoint, reprojecting an estimate that finished late. Measured on a Note20
+            // Ultra, where most estimates arrive one or two frames late: pairing them with the pose at their own
+            // timestamp instead made consecutive frames disagree 2.5 times more (2.49 mm against 0.98 mm).
             var pose = new float[16];
             camera.Pose!.ToMatrix(pose, 0);
 
