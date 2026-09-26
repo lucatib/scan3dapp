@@ -266,7 +266,7 @@ internal sealed class ArScanRenderer : Java.Lang.Object, GLSurfaceView.IRenderer
         {
             try
             {
-                scan.AddPhoto(CameraImageReader.EncodeJpeg(image), image.Metadata);
+                scan.AddPhoto(CameraImageReader.EncodeJpeg(image), image.Metadata, CameraImageReader.Preview(image));
             }
             catch (Exception ex)
             {

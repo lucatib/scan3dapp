@@ -12,8 +12,8 @@ public sealed record LiveScanOptions(
     double IntegrationIntervalSeconds = 0.2,
     DepthFilter? Filter = null,
     int MinIsolatedPoints = 200,
-    double PhotoIntervalSeconds = 1.0,
-    int MaxPhotos = 60);
+    double PhotoIntervalSeconds = 0.5,
+    int MaxPhotos = 90);
 
 public sealed record LiveScanResult(Vector3[] AllPoints, Vector3[] PiecePoints, bool Isolated);
 
@@ -48,6 +48,9 @@ public sealed class LiveScanSession
     private int _photosReserved;
 
     private int _photoCount;
+
+    /// <summary>Small copies of the photos for the on-phone preview. Guarded by <see cref="_writeGate"/>.</summary>
+    private readonly List<PhotoView> _previews = [];
 
     public LiveScanSession(ScanSessionWriter writer, LiveScanOptions? options = null)
     {
@@ -140,16 +143,23 @@ public sealed class LiveScanSession
 
     /// <summary>Records one camera photo. Returns false once the scan is completed, exactly as <see cref="Integrate"/>
     /// does: the JPEG is encoded off the render thread, so it can arrive after the user has pressed Finish.</summary>
-    public bool AddPhoto(byte[] jpeg, ScanPhotoData photo)
+    public bool AddPhoto(byte[] jpeg, ScanPhotoData photo, PhotoView? preview = null)
     {
         // The same write gate as the frames, so a photo cannot land in a session whose manifest is already written.
         lock (_writeGate)
         {
             if (_state == LiveScanState.Completed) return false;
             _writer.AppendPhoto(jpeg, photo);
+            if (preview is not null) _previews.Add(preview);
             Volatile.Write(ref _photoCount, _writer.PhotoCount);
             return true;
         }
+    }
+
+    /// <summary>The in-memory preview copies of the photos recorded so far, in capture order.</summary>
+    public PhotoView[] PreviewPhotos()
+    {
+        lock (_writeGate) return _previews.ToArray();
     }
 
     /// <summary>Back-projects the frame, accumulates the points inside the region and records the frame.

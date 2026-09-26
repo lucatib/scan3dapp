@@ -2,6 +2,7 @@ using Android.Graphics;
 using Google.AR.Core;
 using Google.AR.Core.Exceptions;
 using Java.Nio;
+using Scanner.Capture;
 using Scanner.Capture.ArCore;
 using Scanner.Capture.Sessions;
 using AndroidImage = Android.Media.Image;
@@ -31,6 +32,9 @@ internal sealed record CameraImage(byte[] Nv21, int Width, int Height, ScanPhoto
 internal static class CameraImageReader
 {
     private const int JpegQuality = 88;
+
+    /// <summary>Target width of the preview copies: 1920x1080 photos become 480x270.</summary>
+    private const int PreviewWidth = 480;
 
     /// <summary>Image-normalized (0,0) and (1,0): the ends of the image's own x axis. GL thread only, and read
     /// by ARCore rather than written, so one shared array is safe.</summary>
@@ -78,6 +82,22 @@ internal static class CameraImageReader
         {
             Release(image);
         }
+    }
+
+    /// <summary>
+    /// A small grayscale copy for the on-phone preview: the luma plane averaged down to about
+    /// <see cref="PreviewWidth"/> pixels wide, in sensor orientation like the pose and intrinsics it carries.
+    /// Worker thread only.
+    /// </summary>
+    public static PhotoView Preview(CameraImage image)
+    {
+        int factor = Math.Max(1, image.Width / PreviewWidth);
+        var small = GrayImage.Downscale(image.Nv21, image.Width, image.Height, factor);
+        var k = image.Metadata.Intrinsics;
+        // Whole blocks only, so a source pixel centre x lands at (x + 0.5) / factor - 0.5.
+        var intrinsics = new Scanner.Capture.CameraIntrinsics(small.Width, small.Height, k.Fx / factor, k.Fy / factor,
+            (k.Cx + 0.5f) / factor - 0.5f, (k.Cy + 0.5f) / factor - 0.5f);
+        return new PhotoView(small, intrinsics, image.Metadata.CameraToWorld);
     }
 
     /// <summary>Encodes the image as an upright JPEG. Worker thread only: a JPEG is tens of milliseconds.</summary>

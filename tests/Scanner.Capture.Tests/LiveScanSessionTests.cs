@@ -160,6 +160,31 @@ public sealed class LiveScanSessionTests : IDisposable
         Assert.Equal([1, 2, 3], File.ReadAllBytes(photo.ImagePath));
     }
 
+    // The phone builds its preview from small copies of the photos kept in memory, not from the JPEGs on disk.
+    [Fact]
+    public void AddPhoto_keeps_the_preview_image_with_its_pose()
+    {
+        var session = NewSession();
+        session.RequestStart();
+        session.SetTarget(Vector3.Zero, null);
+        var pose = Matrix4x4.CreateTranslation(1, 2, 3);
+        var preview = new PhotoView(new GrayImage(2, 1, [7, 9]), new CameraIntrinsics(2, 1, 1, 1, 0.5f, 0), pose);
+
+        session.AddPhoto([1], new ScanPhotoData(default, pose, 0.5, 0), preview);
+
+        var kept = Assert.Single(session.PreviewPhotos());
+        Assert.Same(preview, kept);
+    }
+
+    [Fact]
+    public void Photos_default_to_two_a_second_up_to_ninety()
+    {
+        var options = new LiveScanOptions();
+
+        Assert.Equal(0.5, options.PhotoIntervalSeconds);
+        Assert.Equal(90, options.MaxPhotos);
+    }
+
     // The JPEG is encoded off the render thread, so one can still be in flight when Finish is pressed. It must be
     // dropped rather than land in a folder whose manifest is already written and no longer counts it.
     [Fact]

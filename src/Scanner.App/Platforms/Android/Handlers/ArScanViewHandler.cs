@@ -109,6 +109,7 @@ public sealed class ArScanViewHandler : ViewHandler<ArScanView, GLSurfaceView>
         var session = new Session(Context);
         try
         {
+            SelectCameraConfig(session); // before the depth check: depth support depends on the camera config
             if (!session.IsDepthModeSupported(Config.DepthMode.Automatic!))
                 throw new NotSupportedException("This device does not support ARCore depth, which scanning requires.");
             var config = new Config(session);
@@ -123,5 +124,29 @@ public sealed class ArScanViewHandler : ViewHandler<ArScanView, GLSurfaceView>
             session.Close();
             throw;
         }
+    }
+
+    /// <summary>
+    /// The back camera config with the largest CPU image up to 1920x1080. The photos are the geometry source, and
+    /// ARCore's default CPU image (640x480 on a Note20 Ultra) is too coarse for millimetre work; larger CPU images,
+    /// where a phone offers them, cost frame rate that tracking needs.
+    /// </summary>
+    private static void SelectCameraConfig(Session session)
+    {
+        using var filter = new CameraConfigFilter(session);
+        filter.SetFacingDirection(CameraConfig.FacingDirection.Back!);
+        CameraConfig? best = null;
+        long bestArea = 0;
+        foreach (var config in session.GetSupportedCameraConfigs(filter)!)
+        {
+            var size = config.ImageSize!;
+            long area = (long)size.Width * size.Height;
+            if (size.Width > 1920 || size.Height > 1080 || area <= bestArea) continue;
+            best = config;
+            bestArea = area;
+        }
+        if (best is null) return;
+        session.CameraConfig = best;
+        Android.Util.Log.Info("Scan3D", $"Camera config: CPU image {best.ImageSize}, texture {best.TextureSize}");
     }
 }
