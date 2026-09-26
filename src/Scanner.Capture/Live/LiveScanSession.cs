@@ -196,7 +196,9 @@ public sealed class LiveScanSession
     public Vector3[] SnapshotPoints() => _accumulator.Snapshot();
 
     /// <summary>Stops the scan, isolates the piece around the target, writes points and manifest.</summary>
-    public LiveScanResult Complete()
+    /// <param name="enrich">Given the accumulated ARCore points, returns the points to isolate and write instead —
+    /// the phone merges its photogrammetry points in here, so that they are cut from the table together.</param>
+    public LiveScanResult Complete(Func<Vector3[], Vector3[]>? enrich = null)
     {
         Vector3? target;
         float? supportPlaneHeight;
@@ -212,6 +214,7 @@ public sealed class LiveScanSession
         lock (_writeGate)
         {
             var all = _accumulator.Snapshot();
+            if (enrich is not null) all = enrich(all);
             // ARCore often has not found the table yet when Start is pressed; then it is found in the scan itself,
             // or it is never cut away and links everything into one piece.
             supportPlaneHeight ??= SupportPlaneFinder.Find(all);

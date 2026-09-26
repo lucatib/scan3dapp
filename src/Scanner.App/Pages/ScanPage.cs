@@ -1,7 +1,10 @@
+using System.Numerics;
 using Scanner.App.Controls;
 using Scanner.App.Services;
 using Scanner.Capture.Live;
+using Scanner.Capture.PointClouds;
 using Scanner.Capture.Sessions;
+using Scanner.Core.Photogrammetry;
 
 namespace Scanner.App.Pages;
 
@@ -167,11 +170,11 @@ public sealed class ScanPage : ContentPage
         _finishing = true;
         _finish.IsEnabled = false;
         _startPause.IsEnabled = false;
-        _status.Text = "Isolating the piece…";
+        _status.Text = "Building the 3D preview from the photos…";
         scan.Pause();
         try
         {
-            var result = await Task.Run(scan.Complete);
+            var result = await Task.Run(() => scan.Complete(depthPoints => WithPhotoPoints(scan, depthPoints)));
             _status.Text = result.Isolated ? "Piece isolated from the table." : "Could not isolate the piece; showing all points.";
             await Shell.Current.GoToAsync($"preview?id={_sessionId}");
         }
@@ -180,6 +183,31 @@ public sealed class ScanPage : ContentPage
             _status.Text = $"Could not finish the scan: {ex.Message}";
         }
     }
+
+    /// <summary>
+    /// Quick photogrammetry on the small in-memory copies of the photos, with ARCore's poses as they are, merged with
+    /// ARCore's depth points (photos first, depth only filling gaps). The full reconstruction happens on the PC; this
+    /// is a preview, so a failure falls back to the depth points rather than losing the scan.
+    /// </summary>
+    private static Vector3[] WithPhotoPoints(LiveScanSession scan, Vector3[] depthPoints)
+    {
+        if (scan.Target is not { } target) return depthPoints;
+        try
+        {
+            var photoPoints = PhotoReconstruction.DensePoints(scan.PreviewPhotos(), target, PreviewOptions);
+            return SourceMerge.Merge(photoPoints, depthPoints);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Photo preview failed, keeping the depth points: {ex}");
+            return depthPoints;
+        }
+    }
+
+    // Measured on a 24-thread PC at 480x270: 12 photos x 96 depths take 6 s, 8 x 64 take 2.5 s; the phone is several
+    // times slower, and this is only a preview.
+    private static readonly ReconstructionOptions PreviewOptions =
+        new(ReferenceViews: 8, Stereo: new StereoOptions(DepthSamples: 64));
 
     private void OnStatusChanged(object? sender, ArScanStatus status)
     {

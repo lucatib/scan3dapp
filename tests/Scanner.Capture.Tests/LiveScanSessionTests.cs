@@ -267,6 +267,30 @@ public sealed class LiveScanSessionTests : IDisposable
         Assert.InRange(ScanSessionReader.ReadManifest(_dir).SupportPlaneHeight ?? float.NaN, -0.003f, 0.003f);
     }
 
+    // The phone adds photogrammetry points to ARCore's before the table is found and cut, so they are isolated
+    // together and written together.
+    [Fact]
+    public void Complete_isolates_and_writes_the_points_the_enrich_step_adds()
+    {
+        var session = NewSession();
+        session.RequestStart();
+        session.SetTarget(new Vector3(0, 0.04f, -0.04f), null);
+        session.Integrate(TableAndBoxFrame(0), null);
+        var extra = new Vector3(0.001f, 0.06f, -0.041f); // on the box's front face, as a photo point would be
+        Vector3[]? seen = null;
+
+        var result = session.Complete(all =>
+        {
+            seen = all;
+            return [.. all, extra];
+        });
+
+        Assert.NotNull(seen);
+        Assert.Contains(extra, result.AllPoints);
+        Assert.Contains(result.PiecePoints, p => Vector3.Distance(p, extra) < 1e-6f);
+        Assert.Contains(ScanSessionReader.ReadPoints(_dir), p => Vector3.Distance(p, extra) < 1e-6f);
+    }
+
     [Fact]
     public void Complete_keeps_the_plane_ARCore_gave_at_start()
     {

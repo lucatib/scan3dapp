@@ -62,14 +62,12 @@ public static class PlaneSweepStereo
         var last = Filled(n, NoScore);
         var top1 = new float[n];
         var top2 = new float[n];
-        var warped = new float[n];
-        var warped2 = new float[n];
-        var product = new float[n];
-        var valid = new float[n];
-        var sumW = new float[n];
-        var sumW2 = new float[n];
-        var sumRW = new float[n];
-        var sumV = new float[n];
+        // Horizontal window sums of the warped neighbour: intensity, its square, its product with the reference, and
+        // how many of the window's pixels landed inside the neighbour. Double, because they are running sums.
+        var rowW = new double[n];
+        var rowW2 = new double[n];
+        var rowRW = new double[n];
+        var rowValid = new double[n];
         bool average = options.BestOf >= 2 && neighbours.Count >= 2;
 
         for (int s = 0; s < count; s++)
@@ -80,24 +78,8 @@ public static class PlaneSweepStereo
             for (int j = 0; j < neighbours.Count; j++)
             {
                 var homography = Homography(reference.Intrinsics, neighbours[j].Intrinsics, relative[j], d);
-                Warp(neighbours[j].Image, homography, refPixels, warped, warped2, product, valid, w, h);
-                BoxSum(warped, sumW, tmp, w, h, r);
-                BoxSum(warped2, sumW2, tmp, w, h, r);
-                BoxSum(product, sumRW, tmp, w, h, r);
-                BoxSum(valid, sumV, tmp, w, h, r);
-                Parallel.For(0, h, y =>
-                {
-                    for (int x = 0, i = y * w; x < w; x++, i++)
-                    {
-                        if (!textured[i] || sumV[i] < area - 0.5f) continue;
-                        double varR = sumR2[i] - (double)sumR[i] * sumR[i] / area;
-                        double varW = sumW2[i] - (double)sumW[i] * sumW[i] / area;
-                        if (varW <= 1e-3 * area) continue;
-                        float ncc = (float)((sumRW[i] - (double)sumR[i] * sumW[i] / area) / Math.Sqrt(varR * varW));
-                        if (ncc > top1[i]) { top2[i] = top1[i]; top1[i] = ncc; }
-                        else if (ncc > top2[i]) top2[i] = ncc;
-                    }
-                });
+                WarpRows(neighbours[j].Image, homography, refPixels, w, h, r, rowW, rowW2, rowRW, rowValid);
+                ScoreColumns(w, h, r, area, textured, sumR, sumR2, rowW, rowW2, rowRW, rowValid, top1, top2);
             }
 
             Parallel.For(0, h, y =>
@@ -183,35 +165,115 @@ public static class PlaneSweepStereo
         return hm;
     }
 
-    private static void Warp(GrayImage source, double[] hm, float[] reference, float[] warped, float[] warped2,
-        float[] product, float[] valid, int w, int h)
+    /// <summary>
+    /// Warps each row of the neighbour onto the reference (bilinear) and stores, for every pixel whose window fits
+    /// horizontally, the running sums over its row of the window: warped intensity, its square, its product with the
+    /// reference, and the count of samples that fell inside the neighbour.
+    /// </summary>
+    private static void WarpRows(GrayImage source, double[] hm, float[] reference, int w, int h, int r,
+        double[] rowW, double[] rowW2, double[] rowRW, double[] rowValid)
     {
         int sw = source.Width, sh = source.Height;
         byte[] px = source.Pixels;
         Parallel.For(0, h, y =>
         {
+            Span<float> value = stackalloc float[w];
+            Span<float> inside = stackalloc float[w];
             double qx = hm[1] * y + hm[2], qy = hm[4] * y + hm[5], qz = hm[7] * y + hm[8];
-            for (int x = 0, i = y * w; x < w; x++, i++, qx += hm[0], qy += hm[3], qz += hm[6])
+            for (int x = 0; x < w; x++, qx += hm[0], qy += hm[3], qz += hm[6])
             {
-                if (qz > 1e-9)
+                if (qz <= 1e-9) continue;
+                double fx = qx / qz, fy = qy / qz;
+                if (!(fx >= 0 && fy >= 0 && fx < sw - 1 && fy < sh - 1)) continue;
+                int x0 = (int)fx, y0 = (int)fy;
+                float ax = (float)(fx - x0), ay = (float)(fy - y0);
+                int o = y0 * sw + x0;
+                float top = px[o] + (px[o + 1] - px[o]) * ax;
+                float bottom = px[o + sw] + (px[o + sw + 1] - px[o + sw]) * ax;
+                value[x] = top + (bottom - top) * ay;
+                inside[x] = 1;
+            }
+
+            int row = y * w;
+            double a = 0, b = 0, c = 0, count = 0;
+            for (int x = 0; x <= 2 * r && x < w; x++)
+            {
+                float v = value[x];
+                a += v;
+                b += v * v;
+                c += v * reference[row + x];
+                count += inside[x];
+            }
+            for (int x = r; x < w - r; x++)
+            {
+                if (x > r)
                 {
-                    double fx = qx / qz, fy = qy / qz;
-                    if (fx >= 0 && fy >= 0 && fx < sw - 1 && fy < sh - 1)
+                    int enter = x + r, leave = x - r - 1;
+                    float ve = value[enter], vl = value[leave];
+                    a += ve - vl;
+                    b += ve * ve - vl * vl;
+                    c += ve * reference[row + enter] - vl * reference[row + leave];
+                    count += inside[enter] - inside[leave];
+                }
+                int i = row + x;
+                rowW[i] = a;
+                rowW2[i] = b;
+                rowRW[i] = c;
+                rowValid[i] = count;
+            }
+        });
+    }
+
+    /// <summary>
+    /// Completes the window sums vertically, a block of columns per task, and scores every textured pixel whose window
+    /// fell wholly inside the neighbour by normalized cross-correlation, keeping the best two scores per pixel.
+    /// </summary>
+    private static void ScoreColumns(int w, int h, int r, float area, bool[] textured, float[] sumR, float[] sumR2,
+        double[] rowW, double[] rowW2, double[] rowRW, double[] rowValid, float[] top1, float[] top2)
+    {
+        const int Block = 16;
+        int first = r, end = w - r;
+        int blocks = (end - first + Block - 1) / Block;
+        Parallel.For(0, blocks, block =>
+        {
+            int x0 = first + block * Block, x1 = Math.Min(end, x0 + Block), width = x1 - x0;
+            Span<double> a = stackalloc double[width];
+            Span<double> b = stackalloc double[width];
+            Span<double> c = stackalloc double[width];
+            Span<double> count = stackalloc double[width];
+            for (int y = 0; y <= 2 * r && y < h; y++)
+            for (int x = x0, i = y * w + x0; x < x1; x++, i++)
+            {
+                a[x - x0] += rowW[i];
+                b[x - x0] += rowW2[i];
+                c[x - x0] += rowRW[i];
+                count[x - x0] += rowValid[i];
+            }
+            for (int y = r; y < h - r; y++)
+            {
+                if (y > r)
+                {
+                    int enter = (y + r) * w, leave = (y - r - 1) * w;
+                    for (int x = x0; x < x1; x++)
                     {
-                        int x0 = (int)fx, y0 = (int)fy;
-                        float ax = (float)(fx - x0), ay = (float)(fy - y0);
-                        int o = y0 * sw + x0;
-                        float top = px[o] + (px[o + 1] - px[o]) * ax;
-                        float bottom = px[o + sw] + (px[o + sw + 1] - px[o + sw]) * ax;
-                        float value = top + (bottom - top) * ay;
-                        warped[i] = value;
-                        warped2[i] = value * value;
-                        product[i] = value * reference[i];
-                        valid[i] = 1;
-                        continue;
+                        int k = x - x0;
+                        a[k] += rowW[enter + x] - rowW[leave + x];
+                        b[k] += rowW2[enter + x] - rowW2[leave + x];
+                        c[k] += rowRW[enter + x] - rowRW[leave + x];
+                        count[k] += rowValid[enter + x] - rowValid[leave + x];
                     }
                 }
-                warped[i] = warped2[i] = product[i] = valid[i] = 0;
+                for (int x = x0, i = y * w + x0; x < x1; x++, i++)
+                {
+                    int k = x - x0;
+                    if (!textured[i] || count[k] < area - 0.5) continue;
+                    double varR = sumR2[i] - (double)sumR[i] * sumR[i] / area;
+                    double varW = b[k] - a[k] * a[k] / area;
+                    if (varW <= 1e-3 * area) continue;
+                    float ncc = (float)((c[k] - sumR[i] * a[k] / area) / Math.Sqrt(varR * varW));
+                    if (ncc > top1[i]) { top2[i] = top1[i]; top1[i] = ncc; }
+                    else if (ncc > top2[i]) top2[i] = ncc;
+                }
             }
         });
     }
