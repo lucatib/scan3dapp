@@ -3,10 +3,12 @@
     <Project Path="src/Scanner.Brep/Scanner.Brep.csproj" />
     <Project Path="src/Scanner.Capture/Scanner.Capture.csproj" />
     <Project Path="src/Scanner.Core/Scanner.Core.csproj" />
+    <Project Path="src/Scanner.Desktop/Scanner.Desktop.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Scanner.Brep.Tests/Scanner.Brep.Tests.csproj" />
     <Project Path="tests/Scanner.Capture.Tests/Scanner.Capture.Tests.csproj" />
     <Project Path="tests/Scanner.Core.Tests/Scanner.Core.Tests.csproj" />
+    <Project Path="tests/Scanner.Desktop.Tests/Scanner.Desktop.Tests.csproj" />
   </Folder>
 </Solution>

@@ -36,3 +36,20 @@ public class GrayImageTests
         Assert.Throws<ArgumentException>(() => new GrayImage(3, 3, new byte[8]));
     }
 }
+
+public class PhotoViewTests
+{
+    // Pixel centres sit at integers, so a centre x of the source lands at (x + 0.5) / factor - 0.5.
+    [Fact]
+    public void Downscale_scales_the_intrinsics_with_the_pixels()
+    {
+        var view = new PhotoView(new GrayImage(4, 2, new byte[8]), new CameraIntrinsics(4, 2, 10, 12, 1.5f, 0.5f),
+            System.Numerics.Matrix4x4.CreateTranslation(1, 2, 3));
+
+        var small = view.Downscale(2);
+
+        Assert.Equal(new CameraIntrinsics(2, 1, 5, 6, 0.5f, 0f), small.Intrinsics);
+        Assert.Equal(2, small.Image.Width);
+        Assert.Equal(view.CameraToWorld, small.CameraToWorld);
+    }
+}

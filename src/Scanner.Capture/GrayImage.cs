@@ -45,4 +45,16 @@ public sealed class GrayImage
 
 /// <summary>A photo ready for photogrammetry: its pixels, the pinhole intrinsics of exactly those pixels, and the
 /// camera→world pose (OpenCV camera axes, metres, row-vector convention).</summary>
-public sealed record PhotoView(GrayImage Image, CameraIntrinsics Intrinsics, Matrix4x4 CameraToWorld);
+public sealed record PhotoView(GrayImage Image, CameraIntrinsics Intrinsics, Matrix4x4 CameraToWorld)
+{
+    /// <summary>The photo averaged down by <paramref name="factor"/>, with intrinsics that still describe its pixels:
+    /// whole blocks only, so a source pixel centre x lands at (x + 0.5) / factor - 0.5.</summary>
+    public PhotoView Downscale(int factor)
+    {
+        if (factor == 1) return this;
+        var small = GrayImage.Downscale(Image.Pixels, Image.Width, Image.Height, factor);
+        var k = Intrinsics;
+        return new PhotoView(small, new CameraIntrinsics(small.Width, small.Height, k.Fx / factor, k.Fy / factor,
+            (k.Cx + 0.5f) / factor - 0.5f, (k.Cy + 0.5f) / factor - 0.5f), CameraToWorld);
+    }
+}
