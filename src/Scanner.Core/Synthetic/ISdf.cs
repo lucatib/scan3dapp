@@ -8,6 +8,17 @@ public interface ISdf
     float Distance(Vector3 p);
 }
 
+/// <summary>Several shapes together: the distance to the nearest one.</summary>
+public sealed record UnionSdf(IReadOnlyList<ISdf> Parts) : ISdf
+{
+    public float Distance(Vector3 p)
+    {
+        float d = float.PositiveInfinity;
+        foreach (var part in Parts) d = MathF.Min(d, part.Distance(p));
+        return d;
+    }
+}
+
 public sealed record SphereSdf(Vector3 Center, float Radius) : ISdf
 {
     public float Distance(Vector3 p) => Vector3.Distance(p, Center) - Radius;
