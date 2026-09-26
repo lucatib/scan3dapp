@@ -221,6 +221,92 @@ public sealed class LiveScanSessionTests : IDisposable
         }
     }
 
+    // ARCore often has no plane yet when Start is pressed. The table then has to be found in the scan itself, or it
+    // is never cut away and links everything into one piece.
+    [Fact]
+    public void Complete_without_a_plane_from_ARCore_finds_the_table_and_isolates_the_piece()
+    {
+        var session = NewSession();
+        session.RequestStart();
+        session.SetTarget(new Vector3(0, 0.04f, -0.04f), null);
+        session.Integrate(TableAndBoxFrame(0), null);
+
+        var result = session.Complete();
+
+        Assert.True(result.Isolated);
+        Assert.All(result.PiecePoints, p =>
+        {
+            Assert.True(p.Y > 0.004f);
+            Assert.True(MathF.Abs(p.X) <= 0.045f && MathF.Abs(p.Z) <= 0.045f);
+        });
+        Assert.InRange(ScanSessionReader.ReadManifest(_dir).SupportPlaneHeight ?? float.NaN, -0.003f, 0.003f);
+    }
+
+    [Fact]
+    public void Complete_keeps_the_plane_ARCore_gave_at_start()
+    {
+        var session = NewSession();
+        session.RequestStart();
+        session.SetTarget(new Vector3(0, 0.04f, -0.04f), 0.02f);
+        session.Integrate(TableAndBoxFrame(0), null);
+
+        session.Complete();
+
+        Assert.Equal(0.02f, ScanSessionReader.ReadManifest(_dir).SupportPlaneHeight);
+    }
+
+    // 160x120 depth of an 8 cm box standing on a 60 cm table at y = 0, seen from 35 cm up and 35 cm back, looking
+    // down at 45 degrees: the table shows all around the box, and the box's front and top faces meet it.
+    private static DepthFrame TableAndBoxFrame(double time)
+    {
+        var k = new CameraIntrinsics(160, 120, 150f, 150f, 79.5f, 59.5f);
+        var eye = new Vector3(0, 0.35f, -0.35f);
+        var forward = Vector3.Normalize(-eye);
+        var down = Vector3.Normalize(-Vector3.UnitY - Vector3.Dot(-Vector3.UnitY, forward) * forward);
+        var right = Vector3.Cross(down, forward);
+        var cameraToWorld = new Matrix4x4(
+            right.X, right.Y, right.Z, 0,
+            down.X, down.Y, down.Z, 0,
+            forward.X, forward.Y, forward.Z, 0,
+            eye.X, eye.Y, eye.Z, 1);
+
+        var depth = new float[k.Width * k.Height];
+        for (int v = 0; v < k.Height; v++)
+        for (int u = 0; u < k.Width; u++)
+        {
+            // The pixel's ray scaled to camera-space z = 1, so the distance along it to a hit is that hit's depth.
+            var ray = (u - k.Cx) / k.Fx * right + (v - k.Cy) / k.Fy * down + forward;
+            float nearest = RayBox(eye, ray, new Vector3(-0.04f, 0, -0.04f), new Vector3(0.04f, 0.08f, 0.04f));
+            if (ray.Y < 0)
+            {
+                float t = -eye.Y / ray.Y;
+                var hit = eye + t * ray;
+                if (MathF.Abs(hit.X) <= 0.3f && MathF.Abs(hit.Z) <= 0.3f) nearest = MathF.Min(nearest, t);
+            }
+            depth[v * k.Width + u] = float.IsFinite(nearest) ? nearest : 0;
+        }
+        return new DepthFrame(k, depth, cameraToWorld, time);
+    }
+
+    private static float RayBox(Vector3 origin, Vector3 direction, Vector3 min, Vector3 max)
+    {
+        float[] o = [origin.X, origin.Y, origin.Z], d = [direction.X, direction.Y, direction.Z];
+        float[] lo = [min.X, min.Y, min.Z], hi = [max.X, max.Y, max.Z];
+        float enter = 0, exit = float.PositiveInfinity;
+        for (int axis = 0; axis < 3; axis++)
+        {
+            if (MathF.Abs(d[axis]) < 1e-9f)
+            {
+                if (o[axis] < lo[axis] || o[axis] > hi[axis]) return float.PositiveInfinity;
+                continue;
+            }
+            float t1 = (lo[axis] - o[axis]) / d[axis], t2 = (hi[axis] - o[axis]) / d[axis];
+            enter = MathF.Max(enter, MathF.Min(t1, t2));
+            exit = MathF.Min(exit, MathF.Max(t1, t2));
+        }
+        return enter <= exit ? enter : float.PositiveInfinity;
+    }
+
     // 64x64 pixels, all 1 m away: enough back-projection work to widen the window Complete has to race.
     private static DepthFrame WideFrame(double time)
     {

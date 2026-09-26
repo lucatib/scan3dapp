@@ -13,7 +13,9 @@ clouds or meshes.
 ### Android app (`Scanner.App`)
 - **Live AR scan** using ARCore's Depth API: camera preview with a crosshair, Start / Pause / Resume / Finish.
 - Pressing Start picks a **target** at the crosshair (ARCore hit test) and the **support plane** (the highest
-  tracked horizontal plane below it). Only depth points within 30 cm of the target are accumulated.
+  tracked horizontal plane below it). If ARCore has not found a plane yet, which is common right after the
+  app opens, the table is found on Finish in the scan itself: the lowest height level holding a large share of
+  the points. Only depth points within 30 cm of the target are accumulated.
 - Depth frames are integrated at ~5 Hz into a 5 mm voxel point accumulator, filtered by depth range
   (0.10–1.50 m) and ARCore confidence.
 - **Camera photos** are captured once per second (up to 60) with their pose and intrinsics.

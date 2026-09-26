@@ -202,6 +202,9 @@ public sealed class LiveScanSession
         lock (_writeGate)
         {
             var all = _accumulator.Snapshot();
+            // ARCore often has not found the table yet when Start is pressed; then it is found in the scan itself,
+            // or it is never cut away and links everything into one piece.
+            supportPlaneHeight ??= SupportPlaneFinder.Find(all);
             var piece = target is { } t
                 ? ObjectIsolator.Isolate(all, t, supportPlaneHeight, 2 * Options.VoxelSize)
                 : all;
