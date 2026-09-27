@@ -74,8 +74,9 @@ public static class SpaceCarver
             float value = smooth[(k * ny + j) * nx + i];
             if (p.Y <= table.HeightAt(p.X, p.Z) + table.Margin) value = 1; // no table surface, a closed underside
             // Measured surface is more precise than the carved one: keep it where the TSDF has it.
-            else if (volume.TryGet(x, y, z, out float tsdf, out float measured) && measured > 0 && MathF.Abs(tsdf) < 1
-                     && MathF.Sign(tsdf) == MathF.Sign(value)) continue;
+            // Where it has one it wins even against the carving: with little see-through evidence the carving alone
+            // once declared a measured book top empty.
+            else if (volume.TryGet(x, y, z, out float tsdf, out float measured) && measured > 0 && MathF.Abs(tsdf) < 1) continue;
             volume.Set(x, y, z, value, weight);
         }
     }

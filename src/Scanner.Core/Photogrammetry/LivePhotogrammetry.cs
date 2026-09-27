@@ -49,7 +49,7 @@ public sealed class LivePhotogrammetry
     {
         if (_stopped) return;
         PoseRefiner.Prepare(photo, Poses.Options); // corners now, not when the user presses Finish
-        Poses.Add(photo);
+        Poses.Add(photo, PhotoQuality.Sharpness(photo.Image));
 
         if (Poses.Count - Poses.RefinedCount >= _refineEvery && Interlocked.CompareExchange(ref _refining, 1, 0) == 0)
         {
@@ -76,8 +76,8 @@ public sealed class LivePhotogrammetry
             try
             {
                 if (_stopped || state() is not { Recording: true, Target: { } target } current) return;
-                var (photos, version) = Poses.Snapshot();
-                if (_reconstruction.Add(photos, version, target, current.Guide) && Surface is { Positions.Count: > 0 } surface)
+                var (photos, sharp, version) = Poses.Snapshot();
+                if (_reconstruction.Add(photos, sharp, version, target, current.Guide) && Surface is { Positions.Count: > 0 } surface)
                     Volatile.Write(ref _pieceBounds, Bounds(surface.Positions));
             }
             catch (Exception ex)

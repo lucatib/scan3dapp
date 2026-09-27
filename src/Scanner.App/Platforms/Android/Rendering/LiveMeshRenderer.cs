@@ -51,7 +51,9 @@ internal sealed class LiveMeshRenderer
         _indexCount = 0;
     }
 
-    public void Upload(TriangleMesh? mesh)
+    /// <param name="transform">Applied to every vertex (row vectors): the live surface is built with refined poses and
+    /// is drawn in ARCore's current frame.</param>
+    public void Upload(TriangleMesh? mesh, System.Numerics.Matrix4x4 transform)
     {
         if (mesh is null || mesh.TriangleCount == 0)
         {
@@ -61,8 +63,8 @@ internal sealed class LiveMeshRenderer
         var data = new float[mesh.Positions.Count * 6];
         for (int i = 0; i < mesh.Positions.Count; i++)
         {
-            var p = mesh.Positions[i];
-            var n = mesh.Normals[i];
+            var p = System.Numerics.Vector3.Transform(mesh.Positions[i], transform);
+            var n = System.Numerics.Vector3.TransformNormal(mesh.Normals[i], transform);
             data[6 * i] = p.X; data[6 * i + 1] = p.Y; data[6 * i + 2] = p.Z;
             data[6 * i + 3] = n.X; data[6 * i + 4] = n.Y; data[6 * i + 5] = n.Z;
         }

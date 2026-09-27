@@ -16,13 +16,15 @@ public static class ViewSelection
     /// Up to <paramref name="count"/> views that pair well with the reference: their rays meet the reference's at the
     /// target at 2-40 degrees (the closer to 15 the better), and the target is inside their image.
     /// </summary>
-    public static List<int> Neighbours(IReadOnlyList<PhotoView> views, int reference, Vector3 target, int count)
+    /// <param name="usable">When given, only views it accepts are candidates (blurred photos are left out).</param>
+    public static List<int> Neighbours(IReadOnlyList<PhotoView> views, int reference, Vector3 target, int count,
+        IReadOnlyList<bool>? usable = null)
     {
         var toReference = Vector3.Normalize(views[reference].CameraToWorld.Translation - target);
         var ranked = new List<(int Index, float Distance)>();
         for (int i = 0; i < views.Count; i++)
         {
-            if (i == reference || !Pinhole.Sees(views[i], target)) continue;
+            if (i == reference || usable is not null && !usable[i] || !Pinhole.Sees(views[i], target)) continue;
             var toView = Vector3.Normalize(views[i].CameraToWorld.Translation - target);
             float angle = MathF.Acos(Math.Clamp(Vector3.Dot(toReference, toView), -1f, 1f)) * 180f / MathF.PI;
             if (angle < MinAngleDegrees || angle > MaxAngleDegrees) continue;

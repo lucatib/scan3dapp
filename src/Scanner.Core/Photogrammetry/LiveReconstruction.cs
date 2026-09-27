@@ -58,9 +58,11 @@ public sealed class LiveReconstruction
     /// re-extracts the surface. Returns true when the surface changed.
     /// </summary>
     /// <param name="photos">Every photo so far with its current best pose (<see cref="LivePoses.Snapshot"/>).</param>
+    /// <param name="sharp">Which photos are sharp enough to match; blurred ones are neither references nor neighbours.</param>
     /// <param name="poseVersion">The version of those poses; a new one re-fuses every stored map.</param>
     /// <param name="guide">The ARCore points so far: they locate the piece and the table, nothing more.</param>
-    public bool Add(IReadOnlyList<PhotoView> photos, int poseVersion, Vector3 target, IReadOnlyList<Vector3> guide)
+    public bool Add(IReadOnlyList<PhotoView> photos, IReadOnlyList<bool> sharp, int poseVersion, Vector3 target,
+        IReadOnlyList<Vector3> guide)
     {
         if (photos.Count < 2) return false;
         bool changed = false;
@@ -84,7 +86,7 @@ public sealed class LiveReconstruction
         _boxMax = Vector3.Max(_boxMax, newMax);
 
         int reference = photos.Count - 1;
-        if (reference != _lastPhoto && AddMap(photos, reference)) changed |= FuseConfirmed();
+        if (reference != _lastPhoto && sharp[reference] && AddMap(photos, sharp, reference)) changed |= FuseConfirmed();
         _lastPhoto = reference;
         if (!changed) return false;
 
@@ -104,13 +106,13 @@ public sealed class LiveReconstruction
     }
 
     /// <summary>The depth map of photo <paramref name="reference"/>'s view of the box, if it sees it and has neighbours.</summary>
-    private bool AddMap(IReadOnlyList<PhotoView> photos, int reference)
+    private bool AddMap(IReadOnlyList<PhotoView> photos, IReadOnlyList<bool> sharp, int reference)
     {
         var view = photos[reference];
         var center = (_boxMin + _boxMax) / 2;
         if (!Pinhole.Sees(view, center)) return false;
         if (PhotoVoxelReconstruction.Window(view, _boxMin, _boxMax) is not { } window) return false;
-        var neighbours = ViewSelection.Neighbours(photos, reference, center, _options.Neighbours);
+        var neighbours = ViewSelection.Neighbours(photos, reference, center, _options.Neighbours, sharp);
         if (neighbours.Count == 0) return false;
 
         var (x0, y0, width, height, near, far) = window;

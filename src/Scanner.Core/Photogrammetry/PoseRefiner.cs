@@ -15,9 +15,13 @@ namespace Scanner.Core.Photogrammetry;
 /// <param name="FineHuber">Round 2 Huber threshold, as a fraction of the focal length.</param>
 /// <param name="MaxIterations">Bundle adjustment iterations per round; real scans converge in about 30.</param>
 /// <param name="MinObservationsPerPhoto">Below this average the refinement is not trusted and ARCore's poses stay.</param>
+/// <param name="MaxMedianTurnDegrees">A result that turns the photos by more than this (median) is rejected. ARCore is
+/// off by about a degree; good refinements turned photos about 1 degree, while one fed a blurred close pass turned them
+/// 10 degrees and tilted the scene 4.</param>
 public sealed record PoseRefinementOptions(int MaxCorners = 800, float MinResponseRatio = 1e-4f,
     float PairAngleDegrees = 15f, int PartnersPerPhoto = 3, float CoarseTolerance = 0.03f, float FineTolerance = 0.005f,
-    float CoarseHuber = 0.003f, float FineHuber = 0.0015f, int MaxIterations = 30, int MinObservationsPerPhoto = 30);
+    float CoarseHuber = 0.003f, float FineHuber = 0.0015f, int MaxIterations = 30, int MinObservationsPerPhoto = 30,
+    float MaxMedianTurnDegrees = 3f);
 
 /// <param name="Views">The photos with refined poses (ARCore's when <paramref name="Applied"/> is false).</param>
 /// <param name="InitialRmsPx">Reprojection RMS of round 2's tracks before its adjustment.</param>
@@ -64,6 +68,9 @@ public static class PoseRefiner
                        + $"RMS {result.Bundle.InitialRmsPx:F2} -> {result.Bundle.FinalRmsPx:F2} px, {result.Bundle.Iterations} iterations, {clock.ElapsedMilliseconds} ms");
         if (observations < options.MinObservationsPerPhoto * views.Count)
             return Rejected(original, log, "too few observations per photo");
+        float turn = MedianTurnDegrees(original, views2);
+        if (turn > options.MaxMedianTurnDegrees)
+            return Rejected(original, log, $"it turned the photos by {turn:F1} degrees, more than ARCore is off");
         return new PoseRefinement(views2, result.Bundle.InitialRmsPx, result.Bundle.FinalRmsPx, observations, true);
     }
 
@@ -119,6 +126,22 @@ public static class PoseRefiner
             foreach (var (j, _) in partners) pairs.Add((Math.Min(i, j), Math.Max(i, j)));
         }
         return pairs.Order().ToList();
+    }
+
+    /// <summary>Median angle between each photo's rotation before and after.</summary>
+    private static float MedianTurnDegrees(PhotoView[] before, PhotoView[] after)
+    {
+        var turns = new float[before.Length];
+        for (int i = 0; i < before.Length; i++)
+        {
+            var a = before[i].CameraToWorld;
+            var b = after[i].CameraToWorld;
+            float trace = a.M11 * b.M11 + a.M12 * b.M12 + a.M13 * b.M13 + a.M21 * b.M21 + a.M22 * b.M22 + a.M23 * b.M23
+                          + a.M31 * b.M31 + a.M32 * b.M32 + a.M33 * b.M33;
+            turns[i] = MathF.Acos(Math.Clamp((trace - 1) / 2, -1f, 1f)) * 180f / MathF.PI;
+        }
+        Array.Sort(turns);
+        return turns[turns.Length / 2];
     }
 
     private static PoseRefinement Rejected(PhotoView[] original, TextWriter? log, string reason)

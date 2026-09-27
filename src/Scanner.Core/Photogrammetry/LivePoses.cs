@@ -14,6 +14,7 @@ public sealed class LivePoses(PoseRefinementOptions? options = null, int maxRefi
 {
     private readonly object _gate = new();
     private readonly List<PhotoView> _arcore = [];
+    private readonly List<float> _sharpness = [];
     private Dictionary<int, Matrix4x4> _refined = [];
     private int[] _refinedOrder = [];
 
@@ -38,24 +39,48 @@ public sealed class LivePoses(PoseRefinementOptions? options = null, int maxRefi
         get { lock (_gate) return [.. _refinedOrder]; }
     }
 
-    /// <summary>Adds the next photo in capture order, with its ARCore pose.</summary>
-    public int Add(PhotoView photo)
+    /// <summary>Adds the next photo in capture order, with its ARCore pose and its <see cref="PhotoQuality.Sharpness"/>.</summary>
+    public int Add(PhotoView photo, float sharpness)
     {
         lock (_gate)
         {
             _arcore.Add(photo);
+            _sharpness.Add(sharpness);
             return _arcore.Count - 1;
         }
     }
 
-    /// <summary>Every photo so far, with the best pose known for it, and the pose version it reflects.</summary>
-    public (PhotoView[] Photos, int Version) Snapshot()
+    /// <summary>Every photo so far, with the best pose known for it; which of them are sharp enough to match (see
+    /// <see cref="PhotoQuality.MinRelativeSharpness"/>); and the pose version it reflects.</summary>
+    public (PhotoView[] Photos, bool[] Sharp, int Version) Snapshot()
     {
         lock (_gate)
         {
             var photos = new PhotoView[_arcore.Count];
             for (int i = 0; i < photos.Length; i++) photos[i] = _arcore[i] with { CameraToWorld = Best(i) };
-            return (photos, Version);
+            return (photos, SharpFlags(), Version);
+        }
+    }
+
+    /// <summary>True when the newest photo is blurred: the user is moving too fast.</summary>
+    public bool LatestIsBlurred
+    {
+        get
+        {
+            lock (_gate) return _arcore.Count > 4 && !SharpFlags()[^1];
+        }
+    }
+
+    /// <summary>
+    /// The world-to-world correction of the newest photo: refined = ARCore · correction. ARCore'"'"'s current frame is that
+    /// of its newest poses, so geometry built with refined poses is drawn over the camera image through its inverse.
+    /// </summary>
+    public Matrix4x4 LatestCorrection()
+    {
+        lock (_gate)
+        {
+            if (_arcore.Count == 0 || !Matrix4x4.Invert(_arcore[^1].CameraToWorld, out var inverse)) return Matrix4x4.Identity;
+            return inverse * Best(_arcore.Count - 1);
         }
     }
 
@@ -66,9 +91,16 @@ public sealed class LivePoses(PoseRefinementOptions? options = null, int maxRefi
     public bool Refine(Vector3 target, TextWriter? log = null)
     {
         PhotoView[] arcore;
-        lock (_gate) arcore = _arcore.ToArray();
-        if (arcore.Length < 6) return false;
-        var used = ViewSelection.References(arcore.Length, maxRefinedPhotos);
+        bool[] sharp;
+        lock (_gate)
+        {
+            arcore = _arcore.ToArray();
+            sharp = SharpFlags();
+        }
+        // Blurred photos are left out: they match poorly, and nothing downstream uses them.
+        var candidates = Enumerable.Range(0, arcore.Length).Where(i => sharp[i]).ToList();
+        if (candidates.Count < 6) return false;
+        var used = ViewSelection.References(candidates.Count, maxRefinedPhotos).Select(k => candidates[k]).ToList();
         var result = PoseRefiner.Refine(used.Select(i => arcore[i]).ToArray(), target, Options, log);
         lock (_gate)
         {
@@ -79,6 +111,14 @@ public sealed class LivePoses(PoseRefinementOptions? options = null, int maxRefi
             Version++;
             return true;
         }
+    }
+
+    // Caller holds _gate. Sharp: at least MinRelativeSharpness of the median so far.
+    private bool[] SharpFlags()
+    {
+        if (_sharpness.Count == 0) return [];
+        float median = _sharpness.Order().ElementAt(_sharpness.Count / 2);
+        return _sharpness.Select(s => s >= PhotoQuality.MinRelativeSharpness * median).ToArray();
     }
 
     // Caller holds _gate.

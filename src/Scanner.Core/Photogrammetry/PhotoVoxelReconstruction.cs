@@ -113,9 +113,11 @@ public static class PhotoVoxelReconstruction
     }
 
     /// <summary>
-    /// The table under the photo surface. A flat piece can hold more of the surface than the table ring around it, so
-    /// the fit only looks near the ARCore table height: ARCore places the table within about a centimetre, the
-    /// photos then give its exact height and slope.
+    /// The table under the photo surface, measured by the photos: the lowest large flat level of the surface. ARCore's
+    /// table only narrows the search to <see cref="TableSearch"/> around it: its depth comes from camera motion, and a
+    /// close pass once put it 2 cm under the floor the photos saw, which left the whole floor uncut.
+    /// A table carries the piece: a level with next to nothing above it is the top of a flat piece whose floor the photos
+    /// did not match (plain wood), unless it is where ARCore puts the table; then ARCore's table is used.
     /// </summary>
     public static FittedSupportPlane? TablePlane(IReadOnlyList<Vector3> surface, FittedSupportPlane? guide) =>
         TablePlane(surface, guide, out _);
@@ -124,22 +126,46 @@ public static class PhotoVoxelReconstruction
     public static FittedSupportPlane? TablePlane(IReadOnlyList<Vector3> surface, FittedSupportPlane? guide, out bool measured)
     {
         measured = false;
-        if (guide is not { } g)
-        {
-            var own = SupportPlaneFinder.Fit(surface);
-            measured = own is not null;
-            return own;
-        }
+        var near = guide is { } g
+            ? surface.Where(p => MathF.Abs(p.Y - g.HeightAt(p.X, p.Z)) <= TableSearch).ToArray()
+            : surface.ToArray();
         // The ARCore margin is its depth noise, often thicker than a book; the photo surface is far thinner than that.
-        var fallback = g with { Margin = 0.005f };
-        var near = surface.Where(p => MathF.Abs(p.Y - g.HeightAt(p.X, p.Z)) <= 0.01f).ToArray();
-        if (near.Length < Math.Max(30, surface.Count / 6)) return fallback; // too little table in view to measure it
-        float x = near.Average(p => p.X), z = near.Average(p => p.Z);
-        if (SupportPlaneFinder.Fit(near) is not { } fitted || MathF.Abs(fitted.HeightAt(x, z) - g.HeightAt(x, z)) > 0.01f)
-            return fallback;
-        measured = true;
-        return fitted;
+        var fallback = guide is { } h ? h with { Margin = 0.005f } : (FittedSupportPlane?)null;
+        if (near.Length < 30) return fallback;
+
+        // Levels: 5 mm bins with their neighbours. Going up from the lowest, the table is the first level with a real
+        // share of the surface (a floor ring can hold far less than a flat piece's top) that has piece standing on it.
+        const float Bin = 0.005f;
+        var counts = near.GroupBy(p => (int)MathF.Floor(p.Y / Bin)).ToDictionary(b => b.Key, b => b.Count());
+        int Level(int bin) => counts.GetValueOrDefault(bin - 1) + counts.GetValueOrDefault(bin) + counts.GetValueOrDefault(bin + 1);
+        var candidates = counts.Keys.Where(bin => Level(bin) >= Math.Max(30, near.Length * 8 / 100)).Order().ToList();
+        foreach (int bin in candidates)
+        {
+            float height = (bin + 0.5f) * Bin;
+            int above = near.Count(p => p.Y > height + 0.012f);
+            if (above < near.Length / 20) continue;
+            var level = near.Where(p => MathF.Abs(p.Y - height) <= 0.012f).ToArray();
+            if (SupportPlaneFinder.Fit(level) is not { } fitted) continue;
+            measured = true;
+            return fitted;
+        }
+        // Nothing stands on any level: either the floor alone (then trust it where ARCore agrees) or a flat piece's top.
+        if (candidates.Count > 0 && guide is { } a)
+        {
+            var lowest = near.Where(p => MathF.Abs(p.Y - (candidates[0] + 0.5f) * Bin) <= 0.012f).ToArray();
+            if (SupportPlaneFinder.Fit(lowest) is { } floor && MathF.Abs(floor.HeightAt(lowest.Average(p => p.X), lowest.Average(p => p.Z))
+                    - a.HeightAt(lowest.Average(p => p.X), lowest.Average(p => p.Z))) <= 0.01f)
+            {
+                measured = true;
+                return floor;
+            }
+        }
+        return fallback;
     }
+
+    /// <summary>How far from ARCore's table height the photo table is searched for, metres.</summary>
+    public const float TableSearch = 0.08f;
+
 
     /// <summary>
     /// A world box around the piece: the ARCore points above the table in the cluster nearest the target, padded,

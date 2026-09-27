@@ -62,6 +62,7 @@ internal sealed class ArScanRenderer : Java.Lang.Object, GLSurfaceView.IRenderer
     private int _capturingPhoto;
     private volatile LivePhotogrammetry? _live;
     private object? _uploadedSurface; // GL thread only
+    private Matrix4x4 _uploadedTransform = Matrix4x4.Identity; // GL thread only
     private TimeSpan _lastUpload;
     private TimeSpan _lastStatus;
 
@@ -154,10 +155,15 @@ internal sealed class ArScanRenderer : Java.Lang.Object, GLSurfaceView.IRenderer
                 Android.Opengl.Matrix.MultiplyMM(_viewProjection, 0, _projection, 0, _view, 0);
                 // Once the photos show the piece, its surface replaces the ARCore points: those only locate it.
                 var surface = _live?.Surface;
-                if (!ReferenceEquals(surface, _uploadedSurface))
+                // Built with refined poses; drawn through the newest correction, back in ARCore's current frame,
+                // where the camera image is. Without it the surface sat off the object by the refinement's shift.
+                var toArCore = Matrix4x4.Invert(_live?.Poses.LatestCorrection() ?? Matrix4x4.Identity, out var inverse)
+                    ? inverse : Matrix4x4.Identity;
+                if (!ReferenceEquals(surface, _uploadedSurface) || toArCore != _uploadedTransform)
                 {
-                    _liveMesh.Upload(surface);
+                    _liveMesh.Upload(surface, toArCore);
                     _uploadedSurface = surface;
+                    _uploadedTransform = toArCore;
                 }
                 if (_liveMesh.HasMesh) _liveMesh.Draw(_viewProjection);
                 else _points.Draw(_viewProjection, PointSizePixels);
@@ -173,7 +179,8 @@ internal sealed class ArScanRenderer : Java.Lang.Object, GLSurfaceView.IRenderer
         if (_clock.Elapsed - _lastStatus >= StatusInterval)
         {
             _lastStatus = _clock.Elapsed;
-            string? message = _message ?? _live?.LastError ?? (_waitingForDepth ? WaitingForDepthMessage : null);
+            string? message = _message ?? _live?.LastError ?? (_waitingForDepth ? WaitingForDepthMessage : null)
+                              ?? (_live?.Poses.LatestIsBlurred == true ? "Photos are blurred: move slower." : null);
             _reportStatus(new ArScanStatus(tracking, scan?.State ?? LiveScanState.Idle,
                 scan?.PointCount ?? 0, scan?.FrameCount ?? 0, scan?.PhotoCount ?? 0, message));
             _message = null;
