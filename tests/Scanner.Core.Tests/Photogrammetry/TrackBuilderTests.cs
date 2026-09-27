@@ -9,8 +9,8 @@ public class TrackBuilderTests
         counts.Select((count, view) => (IReadOnlyList<Feature>)Enumerable.Range(0, count)
             .Select(i => new Feature(100 * view + i, 1000 + 100 * view + i, 1f)).ToList()).ToList();
 
-    private static FeatureMatch Match(int viewA, int featureA, int viewB, int featureB) =>
-        new(viewA, featureA, viewB, featureB, 0.9f);
+    private static FeatureMatch Match(int viewA, int featureA, int viewB, int featureB, float score = 0.9f) =>
+        new(viewA, featureA, viewB, featureB, score);
 
     private static Observation Seen(int view, int feature) => new(view, 100 * view + feature, 1000 + 100 * view + feature);
 
@@ -26,22 +26,45 @@ public class TrackBuilderTests
         Assert.Equal(new[] { Seen(0, 1), Seen(1, 2), Seen(2, 3) }, track);
     }
 
-    [Fact]
-    public void A_chain_that_reaches_another_feature_of_the_same_view_is_dropped_whole()
+    [Theory]
+    [InlineData(0.95f, 0.85f)]
+    [InlineData(0.85f, 0.95f)]
+    public void Of_two_matches_that_would_join_two_features_of_one_view_the_weaker_is_left_out(float first, float second)
     {
         var features = Features(6, 6, 6);
 
         var tracks = TrackBuilder.Build(features, [
-            // View 0 feature 1 -> view 1 feature 2 -> view 0 feature 5: two features of view 0 cannot be one point.
-            Match(0, 1, 1, 2), Match(1, 2, 0, 5),
-            // A view the bad set reaches only once is dropped with it, not kept as a smaller track.
+            // View 0 feature 1 -> view 1 feature 2 <- view 0 feature 5: two features of view 0 cannot be one point.
+            Match(0, 1, 1, 2, first), Match(1, 2, 0, 5, second),
             Match(1, 2, 2, 0),
             // An unrelated, consistent track.
             Match(0, 3, 1, 4), Match(1, 4, 2, 4),
         ]);
 
-        var track = Assert.Single(tracks);
-        Assert.Equal(new[] { Seen(0, 3), Seen(1, 4), Seen(2, 4) }, track);
+        int kept = first > second ? 1 : 5;
+        Assert.Equal(2, tracks.Count);
+        Assert.Contains(new[] { Seen(0, kept), Seen(1, 2), Seen(2, 0) }, tracks);
+        Assert.Contains(new[] { Seen(0, 3), Seen(1, 4), Seen(2, 4) }, tracks);
+    }
+
+    [Fact]
+    public void A_wrong_match_between_two_long_tracks_costs_one_link_not_the_tracks()
+    {
+        var features = Features(4, 4, 4, 4);
+        var matches = new List<FeatureMatch>();
+        for (int view = 0; view < 3; view++)
+        {
+            matches.Add(Match(view, 0, view + 1, 0));
+            matches.Add(Match(view, 1, view + 1, 1));
+        }
+        // A chance match between the two points, weaker than the true ones.
+        matches.Add(Match(1, 0, 2, 1, 0.81f));
+
+        var tracks = TrackBuilder.Build(features, matches);
+
+        Assert.Equal(2, tracks.Count);
+        Assert.Equal(new[] { Seen(0, 0), Seen(1, 0), Seen(2, 0), Seen(3, 0) }, tracks[0]);
+        Assert.Equal(new[] { Seen(0, 1), Seen(1, 1), Seen(2, 1), Seen(3, 1) }, tracks[1]);
     }
 
     [Fact]

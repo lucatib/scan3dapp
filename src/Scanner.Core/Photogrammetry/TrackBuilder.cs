@@ -8,16 +8,19 @@ namespace Scanner.Core.Photogrammetry;
 public static class TrackBuilder
 {
     /// <summary>
-    /// Every (photo, feature) is a node and every match joins two nodes; each connected set is a candidate track. A set
-    /// holding two different features of one photo is inconsistent: a point shows up once per photo, so somewhere along
-    /// the chain a match is wrong, and since nothing tells which one, the whole set is dropped. Sets seen in fewer than
-    /// <paramref name="minViews"/> photos are dropped too.
+    /// Every (photo, feature) is a node and every match joins two nodes into one set, strongest match first. A match
+    /// whose two sets already hold features of a common photo is left out: a point shows up once per photo, so one of
+    /// the matches that led there is wrong, and the weaker one is the likelier culprit. A wrong match then costs one
+    /// link instead of every track it touches; on real photos, where a few chance matches among thousands chain most
+    /// tracks together, that keeps more than half the observations. Sets seen in fewer than
+    /// <paramref name="minViews"/> photos are dropped.
     /// </summary>
     /// <param name="features">The features of each photo; <see cref="FeatureMatch"/> indices point into these lists.</param>
     /// <param name="minViews">Fewest photos a track must be seen in; at 1, unmatched features come back as tracks of
     /// one observation.</param>
     /// <returns>One array per track with the observations ordered by photo index. Tracks are ordered by their first
-    /// (photo, feature) node, so the output does not depend on the order or direction of the matches.</returns>
+    /// (photo, feature) node, and equal scores are taken in node order, so the output does not depend on the order or
+    /// direction of the matches.</returns>
     public static List<Observation[]> Build(IReadOnlyList<IReadOnlyList<Feature>> features, IEnumerable<FeatureMatch> matches,
         int minViews = 2)
     {
@@ -28,6 +31,8 @@ public static class TrackBuilder
         var first = new int[features.Count + 1];
         for (int view = 0; view < features.Count; view++) first[view + 1] = first[view] + features[view].Count;
         int nodeCount = first[features.Count];
+        var viewOf = new int[nodeCount];
+        for (int view = 0; view < features.Count; view++) Array.Fill(viewOf, view, first[view], features[view].Count);
 
         int Node(int view, int feature)
         {
@@ -36,25 +41,18 @@ public static class TrackBuilder
             return first[view] + feature;
         }
 
-        var sets = new DisjointSets(nodeCount);
-        foreach (var match in matches) sets.Union(Node(match.ViewA, match.FeatureA), Node(match.ViewB, match.FeatureB));
-
-        // Pass 1: size and consistency of every set. A repeated photo shows up as the same photo twice in a row.
-        var root = new int[nodeCount];
-        var size = new int[nodeCount];
-        var lastView = new int[nodeCount];
-        var inconsistent = new bool[nodeCount];
-        Array.Fill(lastView, -1);
-        for (int view = 0, node = 0; view < features.Count; view++)
-        for (int feature = 0; feature < features[view].Count; feature++, node++)
+        var links = new List<(float Score, int A, int B)>();
+        foreach (var match in matches)
         {
-            int r = root[node] = sets.Find(node);
-            if (lastView[r] == view) inconsistent[r] = true;
-            lastView[r] = view;
-            size[r]++;
+            int a = Node(match.ViewA, match.FeatureA), b = Node(match.ViewB, match.FeatureB);
+            links.Add(a <= b ? (match.Score, a, b) : (match.Score, b, a));
         }
+        links.Sort((x, y) => x.Score != y.Score ? y.Score.CompareTo(x.Score) : x.A != y.A ? x.A.CompareTo(y.A) : x.B.CompareTo(y.B));
 
-        // Pass 2: the surviving sets in order of their first node, observations in photo order.
+        var sets = new DisjointSets(viewOf);
+        foreach (var (_, a, b) in links) sets.TryUnion(a, b);
+
+        // The surviving sets in order of their first node, observations in photo order.
         var trackOf = new int[nodeCount];
         var filled = new int[nodeCount];
         var tracks = new List<Observation[]>();
@@ -62,12 +60,13 @@ public static class TrackBuilder
         for (int view = 0, node = 0; view < features.Count; view++)
         for (int feature = 0; feature < features[view].Count; feature++, node++)
         {
-            int r = root[node];
-            if (inconsistent[r] || size[r] < minViews) continue;
+            int r = sets.Find(node);
+            int size = sets.Size(r);
+            if (size < minViews) continue;
             if (trackOf[r] < 0)
             {
                 trackOf[r] = tracks.Count;
-                tracks.Add(new Observation[size[r]]);
+                tracks.Add(new Observation[size]);
             }
             var f = features[view][feature];
             tracks[trackOf[r]][filled[r]++] = new Observation(view, f.X, f.Y);
@@ -75,16 +74,24 @@ public static class TrackBuilder
         return tracks;
     }
 
-    /// <summary>Union-find with path halving and union by size: near-constant time per operation.</summary>
+    /// <summary>Union-find with path halving and union by size, which also keeps the photos each set is seen in so
+    /// that a union joining two features of one photo can be refused: near-constant time per operation, and each
+    /// photo index is copied only when its set is the smaller one of a union, O(n log n) in all.</summary>
     private sealed class DisjointSets
     {
         private readonly int[] _parent;
         private readonly int[] _size;
+        private readonly int[] _viewOf;
+        // The photos of a set of two or more nodes, kept at its root; a single node is seen in its own photo only.
+        private readonly HashSet<int>?[] _views;
 
-        public DisjointSets(int count)
+        public DisjointSets(int[] viewOf)
         {
+            int count = viewOf.Length;
+            _viewOf = viewOf;
             _parent = new int[count];
             _size = new int[count];
+            _views = new HashSet<int>?[count];
             for (int i = 0; i < count; i++)
             {
                 _parent[i] = i;
@@ -102,12 +109,25 @@ public static class TrackBuilder
             return node;
         }
 
-        public void Union(int a, int b)
+        public int Size(int root) => _size[root];
+
+        /// <summary>Joins the sets of the two nodes unless they already hold features of a common photo.</summary>
+        public void TryUnion(int a, int b)
         {
             a = Find(a);
             b = Find(b);
             if (a == b) return;
             if (_size[a] < _size[b]) (a, b) = (b, a);
+            var large = _views[a] ?? [_viewOf[a]];
+            if (_views[b] is { } small)
+            {
+                foreach (int view in small)
+                    if (large.Contains(view)) return;
+                large.UnionWith(small);
+                _views[b] = null;
+            }
+            else if (!large.Add(_viewOf[b])) return;
+            _views[a] = large;
             _parent[b] = a;
             _size[a] += _size[b];
         }
