@@ -12,7 +12,8 @@ public sealed class ArScanViewHandler : ViewHandler<ArScanView, GLSurfaceView>
     public static readonly IPropertyMapper<ArScanView, ArScanViewHandler> PropertyMapper =
         new PropertyMapper<ArScanView, ArScanViewHandler>(ViewMapper)
         {
-            [nameof(ArScanView.Session)] = (handler, view) => handler._renderer?.SetScan(view.Session),
+            [nameof(ArScanView.Session)] = (handler, view) => handler._renderer?.SetScan(view.Session, view.Live),
+            [nameof(ArScanView.Live)] = (handler, view) => handler._renderer?.SetScan(view.Session, view.Live),
         };
 
     public static readonly CommandMapper<ArScanView, ArScanViewHandler> CommandMapper =
@@ -55,7 +56,7 @@ public sealed class ArScanViewHandler : ViewHandler<ArScanView, GLSurfaceView>
     protected override void ConnectHandler(GLSurfaceView platformView)
     {
         base.ConnectHandler(platformView);
-        _renderer?.SetScan(VirtualView.Session);
+        _renderer?.SetScan(VirtualView.Session, VirtualView.Live);
         if (VirtualView.IsResumeRequested) ResumeAr(); // Resume() was called before this handler existed
     }
 
@@ -63,7 +64,7 @@ public sealed class ArScanViewHandler : ViewHandler<ArScanView, GLSurfaceView>
     {
         PauseAr();
         _renderer?.AttachSession(null);
-        _renderer?.SetScan(null);
+        _renderer?.SetScan(null, null);
         _session?.Close();
         _session = null;
         base.DisconnectHandler(platformView);

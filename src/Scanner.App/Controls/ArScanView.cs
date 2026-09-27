@@ -1,4 +1,5 @@
 using Scanner.Capture.Live;
+using Scanner.Core.Photogrammetry;
 
 namespace Scanner.App.Controls;
 
@@ -16,6 +17,16 @@ public sealed class ArScanView : View
     {
         get => (LiveScanSession?)GetValue(SessionProperty);
         set => SetValue(SessionProperty, value);
+    }
+
+    public static readonly BindableProperty LiveProperty =
+        BindableProperty.Create(nameof(Live), typeof(LivePhotogrammetry), typeof(ArScanView));
+
+    /// <summary>The photogrammetry that runs during the scan: it receives every photo and supplies the live surface.</summary>
+    public LivePhotogrammetry? Live
+    {
+        get => (LivePhotogrammetry?)GetValue(LiveProperty);
+        set => SetValue(LiveProperty, value);
     }
 
     /// <summary>True between <see cref="Resume"/> and <see cref="Pause"/>; a handler connected later starts AR when set.</summary>

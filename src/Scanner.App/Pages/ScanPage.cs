@@ -15,6 +15,13 @@ public sealed class ScanPage : ContentPage
     private readonly Button _startPause = new() { Text = "Start", IsEnabled = false };
     private readonly Button _finish = new() { Text = "Finish", IsEnabled = false };
     private LiveScanSession? _scan;
+    private LivePhotogrammetry? _live;
+
+    /// <summary>Settings of the photogrammetry that runs during the scan.</summary>
+    private static readonly VoxelReconstructionOptions LiveOptions = new(MaxDepthSamples: 64, MaxHalfWidth: 0.12f, MinWeight: 1);
+
+    /// <summary>New photos between pose refinements during the scan.</summary>
+    private const int RefineEvery = 8;
 
     /// <summary>Most photos the finished scan refines, reconstructs and textures with.</summary>
     private const int MaxFinishPhotos = 48;
@@ -80,6 +87,9 @@ public sealed class ScanPage : ContentPage
         if (!_finishing && _scan is not null && _scan.State != LiveScanState.Completed && _sessionId is not null)
         {
             _arView.Session = null;
+            _arView.Live = null;
+            _ = _live?.StopAsync();
+            _live = null;
             _scan.Pause();
             _store.Delete(_sessionId);
             _scan = null;
@@ -120,6 +130,8 @@ public sealed class ScanPage : ContentPage
                 // ScanSessionWriter creates the session folder, so this can fail on a full or read-only volume.
                 _scan = new LiveScanSession(new ScanSessionWriter(directory, id, DeviceInfo.Current.Model),
                     new LiveScanOptions(RequireStableDepth: true));
+                _live = new LivePhotogrammetry(LiveOptions, refineEvery: RefineEvery);
+                _arView.Live = _live;
                 _arView.Session = _scan;
                 _startPause.IsEnabled = true;
                 _status.Text = "Aim the crosshair at the piece and press Start.";
@@ -181,6 +193,8 @@ public sealed class ScanPage : ContentPage
         try
         {
             await scan.WaitForPhotoCaptureAsync();
+            var live = _live;
+            if (live is not null) await live.StopAsync(); // the finished scan gets the whole CPU
             string directory = _store.DirectoryOf(sessionId);
             var clock = System.Diagnostics.Stopwatch.StartNew();
             var (result, textured) = await Task.Run(() =>
@@ -188,7 +202,9 @@ public sealed class ScanPage : ContentPage
                 // The ARCore points only locate the piece: the geometry is the photos', fused in voxels.
                 // At most MaxFinishPhotos, spread over the capture: a 47-photo scan was as good as a 90-photo one, and
                 // pose refinement and texturing grow with the count. Indices pair them with the stored photos.
-                var all = scan.PreviewPhotos();
+                var previews = scan.PreviewPhotos();
+                bool paired = live is not null && live.Poses.Count == previews.Length;
+                var all = paired ? live!.Poses.Snapshot().Photos : previews;
                 var used = ViewSelection.References(all.Length, MaxFinishPhotos);
                 var photos = used.Select(i => all[i]).ToArray();
                 VoxelReconstruction? reconstruction = null;
@@ -196,13 +212,21 @@ public sealed class ScanPage : ContentPage
                 {
                     try
                     {
-                        // ARCore poses are only the starting guess: the photos refine them against each other first.
+                        // ARCore poses are only the starting guess: the photos refined them against each other during the
+                        // scan. Only when the last photos went unrefined for too long is it done again here.
                         var log = new LogcatWriter();
-                        photos = PoseRefiner.Refine(photos, target, log: log).Views;
+                        if (!paired)
+                            photos = PoseRefiner.Refine(photos, target, log: log).Views;
+                        else if (live!.Poses.Version == 0 || all.Length - live.Poses.RefinedCount >= RefineEvery)
+                        {
+                            live.Poses.Refine(target, log);
+                            all = live.Poses.Snapshot().Photos;
+                            photos = used.Select(i => all[i]).ToArray();
+                        }
                         Console.WriteLine($"Scan3D: refined {photos.Length} of {all.Length} photos at {clock.Elapsed.TotalSeconds:F1} s");
                         reconstruction = PhotoVoxelReconstruction.Reconstruct(photos, target, scan.SnapshotPoints(),
                             new VoxelReconstructionOptions(ReferenceViews: 8, MaxDepthSamples: 64, MaxHalfWidth: 0.12f, MinWeight: 1),
-                            log, scan.PieceBounds);
+                            log, live?.PieceBounds);
                         Console.WriteLine($"Scan3D: reconstructed at {clock.Elapsed.TotalSeconds:F1} s");
                     }
                     catch (Exception ex)

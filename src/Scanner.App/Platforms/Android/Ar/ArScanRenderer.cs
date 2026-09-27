@@ -5,7 +5,6 @@ using Google.AR.Core;
 using Javax.Microedition.Khronos.Opengles;
 using Scanner.App.Controls;
 using Scanner.App.Droid.Rendering;
-using System.Collections.Concurrent;
 using Scanner.Capture;
 using Scanner.Capture.Live;
 using Scanner.Core.Photogrammetry;
@@ -43,7 +42,6 @@ internal sealed class ArScanRenderer : Java.Lang.Object, GLSurfaceView.IRenderer
     private readonly CameraBackgroundRenderer _background = new();
     private readonly PointCloudRenderer _points = new();
     private readonly LiveMeshRenderer _liveMesh = new();
-    private readonly ConcurrentQueue<PhotoView> _livePhotos = new();
     private readonly DepthFrameReader _depth = new();
     private readonly Stopwatch _clock = Stopwatch.StartNew();
     private readonly float[] _view = new float[16];
@@ -62,8 +60,7 @@ internal sealed class ArScanRenderer : Java.Lang.Object, GLSurfaceView.IRenderer
     private bool _waitingForDepth; // GL thread only
     private int _integrating;
     private int _capturingPhoto;
-    private int _reconstructing;
-    private volatile LiveReconstruction? _live;
+    private volatile LivePhotogrammetry? _live;
     private object? _uploadedSurface; // GL thread only
     private TimeSpan _lastUpload;
     private TimeSpan _lastStatus;
@@ -83,15 +80,11 @@ internal sealed class ArScanRenderer : Java.Lang.Object, GLSurfaceView.IRenderer
         _geometryChanged = true; // a new session needs SetDisplayGeometry before its first Update
     }
 
-    public void SetScan(LiveScanSession? scan)
+    public void SetScan(LiveScanSession? scan, LivePhotogrammetry? live)
     {
         _scan = scan;
-        _livePhotos.Clear();
-        _live = scan is null ? null : new LiveReconstruction(LiveOptions);
+        _live = live;
     }
-
-    /// <summary>Settings of the live photo reconstruction; the finished scan uses the same box.</summary>
-    public static readonly VoxelReconstructionOptions LiveOptions = new(MaxDepthSamples: 64, MaxHalfWidth: 0.12f, MinWeight: 1);
 
     public void OnSurfaceCreated(IGL10? gl, EGLConfig? config)
     {
@@ -180,45 +173,11 @@ internal sealed class ArScanRenderer : Java.Lang.Object, GLSurfaceView.IRenderer
         if (_clock.Elapsed - _lastStatus >= StatusInterval)
         {
             _lastStatus = _clock.Elapsed;
-            string? message = _message ?? (_waitingForDepth ? WaitingForDepthMessage : null);
+            string? message = _message ?? _live?.LastError ?? (_waitingForDepth ? WaitingForDepthMessage : null);
             _reportStatus(new ArScanStatus(tracking, scan?.State ?? LiveScanState.Idle,
                 scan?.PointCount ?? 0, scan?.FrameCount ?? 0, scan?.PhotoCount ?? 0, message));
             _message = null;
         }
-    }
-
-    /// <summary>
-    /// Hands a new photo to the live reconstruction. One worker at a time: photos that arrive while it is busy are
-    /// only remembered as stereo neighbours, and the worker then matches the newest one. Failures are reported and
-    /// swallowed, like photo failures: the live surface is a preview, the recording must go on.
-    /// </summary>
-    private void OfferLive(LiveScanSession scan, PhotoView photo)
-    {
-        var live = _live;
-        if (live is null) return;
-        _livePhotos.Enqueue(photo);
-        if (Interlocked.CompareExchange(ref _reconstructing, 1, 0) != 0) return;
-        Task.Run(() =>
-        {
-            try
-            {
-                while (_livePhotos.TryDequeue(out var queued)) live.Remember(queued);
-                if (scan.State == LiveScanState.Recording && scan.Target is { } target && ReferenceEquals(live, _live)
-                    && live.Add(target, scan.SnapshotPoints()) && live.Surface is { Positions.Count: > 0 } surface)
-                {
-                    // Finishing crops the photos to this rather than to ARCore's much larger guess.
-                    scan.SetPieceBounds(surface.Positions.Aggregate(Vector3.Min), surface.Positions.Aggregate(Vector3.Max));
-                }
-            }
-            catch (Exception ex)
-            {
-                _message = $"Live reconstruction failed: {ex.Message}";
-            }
-            finally
-            {
-                Volatile.Write(ref _reconstructing, 0);
-            }
-        });
     }
 
     // The target is the depth/plane hit under the screen centre (the crosshair); the support plane is the highest
@@ -334,9 +293,9 @@ internal sealed class ArScanRenderer : Java.Lang.Object, GLSurfaceView.IRenderer
                     scan.ReleasePhotoReservation();
                 else
                 {
-                    // Corners now, while the phone waits for the next photo, rather than when the user presses Finish.
-                    PoseRefiner.Prepare(preview);
-                    OfferLive(scan, preview);
+                    // Poses, corners and the live surface; failures there are reported, the recording goes on.
+                    _live?.Offer(preview, () => new ScanProgress(scan.Target, scan.SnapshotPoints(),
+                        scan.State == LiveScanState.Recording));
                 }
             }
             catch (Exception ex)
