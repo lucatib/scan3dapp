@@ -190,7 +190,8 @@ public sealed class ScanPage : ContentPage
                     try
                     {
                         reconstruction = PhotoVoxelReconstruction.Reconstruct(photos, target, scan.SnapshotPoints(),
-                            new VoxelReconstructionOptions(ReferenceViews: 8, MaxDepthSamples: 64, MaxHalfWidth: 0.08f, MinWeight: 1));
+                            new VoxelReconstructionOptions(ReferenceViews: 8, MaxDepthSamples: 64, MaxHalfWidth: 0.08f, MinWeight: 1),
+                            new LogcatWriter());
                     }
                     catch (Exception ex)
                     {
@@ -245,4 +246,10 @@ public sealed class ScanPage : ContentPage
         _startPause.Text = running ? "Pause" : _scan.FrameCount > 0 ? "Resume" : "Start";
         _finish.IsEnabled = _scan.PointCount > 0;
     }
+}
+
+/// <summary>Sends reconstruction progress lines to the device log (tag DOTNET, prefixed Scan3D).</summary>
+internal sealed class LogcatWriter : StringWriter
+{
+    public override void WriteLine(string? value) => Console.WriteLine($"Scan3D: {value}");
 }
