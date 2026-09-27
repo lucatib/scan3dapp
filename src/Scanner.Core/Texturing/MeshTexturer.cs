@@ -13,6 +13,12 @@ public sealed record TextureCamera(int PhotoIndex, CameraIntrinsics Intrinsics, 
     public static TextureCamera FromPhoto(ScanPhoto photo) => new(photo.Index,
         PhotoOrientation.RotateIntrinsics(photo.Intrinsics, photo.RotationDegrees),
         PhotoOrientation.RotateCameraToWorld(photo.ToPose(), photo.RotationDegrees));
+
+    /// <summary>The camera of the stored picture for a photo whose pose was refined: <paramref name="sensorView"/> is
+    /// in sensor orientation, at any resolution (texture coordinates are normalized).</summary>
+    public static TextureCamera FromView(ScanPhoto photo, PhotoView sensorView) => new(photo.Index,
+        PhotoOrientation.RotateIntrinsics(sensorView.Intrinsics, photo.RotationDegrees),
+        PhotoOrientation.RotateCameraToWorld(sensorView.CameraToWorld, photo.RotationDegrees));
 }
 
 /// <summary>

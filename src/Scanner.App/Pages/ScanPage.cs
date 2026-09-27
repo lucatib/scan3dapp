@@ -189,9 +189,12 @@ public sealed class ScanPage : ContentPage
                 {
                     try
                     {
+                        // ARCore poses are only the starting guess: the photos refine them against each other first.
+                        var log = new LogcatWriter();
+                        photos = PoseRefiner.Refine(photos, target, log: log).Views;
                         reconstruction = PhotoVoxelReconstruction.Reconstruct(photos, target, scan.SnapshotPoints(),
                             new VoxelReconstructionOptions(ReferenceViews: 8, MaxDepthSamples: 64, MaxHalfWidth: 0.08f, MinWeight: 1),
-                            new LogcatWriter());
+                            log);
                     }
                     catch (Exception ex)
                     {
@@ -205,7 +208,11 @@ public sealed class ScanPage : ContentPage
                 {
                     try
                     {
-                        var cameras = ScanSessionReader.ReadPhotos(directory).Select(p => TextureCamera.FromPhoto(p.Photo)).ToList();
+                        // The previews are the photos in capture order, so they pair with the stored photos one to one.
+                        var stored = ScanSessionReader.ReadPhotos(directory);
+                        var cameras = stored.Count == photos.Length
+                            ? stored.Select((p, i) => TextureCamera.FromView(p.Photo, photos[i])).ToList()
+                            : stored.Select(p => TextureCamera.FromPhoto(p.Photo)).ToList();
                         TexturedModelFile.Write(directory, MeshTexturer.Texture(reconstruction.Mesh, cameras));
                         wroteModel = true;
                     }
