@@ -23,9 +23,9 @@ public sealed record VoxelReconstructionOptions(int ReferenceViews = 12, int Nei
     float TruncationVoxels = 4, float BoxPadding = 0.03f, int MinDepthSamples = 24, int MaxDepthSamples = 96,
     float MinWeight = 2, float MaxHalfWidth = 0.10f, StereoOptions? Stereo = null);
 
-/// <summary>The reconstructed piece: a closed-where-seen surface mesh cut from the table, the table plane it was cut at,
+/// <summary>The reconstructed piece: a surface mesh cut from the table (<paramref name="Surface"/> is before the cut), the table plane it was cut at,
 /// and the world box that was searched.</summary>
-public sealed record VoxelReconstruction(TriangleMesh Mesh, FittedSupportPlane? Plane, Vector3 BoxMin, Vector3 BoxMax,
+public sealed record VoxelReconstruction(TriangleMesh Mesh, TriangleMesh Surface, FittedSupportPlane? Plane, Vector3 BoxMin, Vector3 BoxMax,
     int DepthMaps);
 
 /// <summary>
@@ -80,16 +80,34 @@ public static class PhotoVoxelReconstruction
         }
 
         var mesh = SurfaceNets.Extract(volume, options.MinWeight);
-        var plane = SupportPlaneFinder.Fit(mesh.Positions) ?? guidePlane;
+        var plane = TablePlane(mesh.Positions, guidePlane);
         var piece = MeshCleanup.Piece(mesh, target, plane, 2 * options.VoxelSize);
         log?.WriteLine($"  mesh {mesh.Positions.Count} vertices, table {plane}, piece {piece.Positions.Count} vertices");
-        return new VoxelReconstruction(piece, plane, boxMin, boxMax, maps.Count);
+        return new VoxelReconstruction(piece, mesh, plane, boxMin, boxMax, maps.Count);
+    }
+
+    /// <summary>
+    /// The table under the photo surface. A flat piece can hold more of the surface than the table ring around it, so
+    /// the fit only looks near the ARCore table height: ARCore places the table within about a centimetre, the
+    /// photos then give its exact height and slope.
+    /// </summary>
+    public static FittedSupportPlane? TablePlane(IReadOnlyList<Vector3> surface, FittedSupportPlane? guide)
+    {
+        if (guide is not { } g) return SupportPlaneFinder.Fit(surface);
+        // The ARCore margin is its depth noise, often thicker than a book; the photo surface is far thinner than that.
+        var fallback = g with { Margin = 0.005f };
+        var near = surface.Where(p => MathF.Abs(p.Y - g.HeightAt(p.X, p.Z)) <= 0.01f).ToArray();
+        if (near.Length < surface.Count / 6) return fallback; // too little table in view to measure it
+        float x = near.Average(p => p.X), z = near.Average(p => p.Z);
+        return SupportPlaneFinder.Fit(near) is { } fitted && MathF.Abs(fitted.HeightAt(x, z) - g.HeightAt(x, z)) <= 0.01f
+            ? fitted : fallback;
     }
 
     /// <summary>
     /// A world box around the piece: the ARCore points above the table in the cluster nearest the target, padded,
     /// and reaching down past the table so that a ring of it is reconstructed too (the photo table plane is fitted
-    /// on that ring). Without a usable cluster, a 12 cm cube around the target.
+    /// on that ring). Without a usable cluster (a flat piece hides inside the ARCore noise band), a 16 cm cube around the
+    /// target, which the reach clamp then trims.
     /// </summary>
     public static (Vector3 Min, Vector3 Max) ObjectBox(IReadOnlyList<Vector3> guide, Vector3 target,
         FittedSupportPlane? plane, float padding, float maxHalfWidth = float.PositiveInfinity)
@@ -108,8 +126,8 @@ public static class PhotoVoxelReconstruction
         }
         else
         {
-            min = target - new Vector3(0.06f);
-            max = target + new Vector3(0.06f);
+            min = target - new Vector3(0.08f);
+            max = target + new Vector3(0.08f);
         }
         min -= new Vector3(padding);
         max += new Vector3(padding);

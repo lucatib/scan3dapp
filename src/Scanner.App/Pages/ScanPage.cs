@@ -190,7 +190,7 @@ public sealed class ScanPage : ContentPage
                     try
                     {
                         reconstruction = PhotoVoxelReconstruction.Reconstruct(photos, target, scan.SnapshotPoints(),
-                            new VoxelReconstructionOptions(ReferenceViews: 8, MaxDepthSamples: 64, MaxHalfWidth: 0.08f));
+                            new VoxelReconstructionOptions(ReferenceViews: 8, MaxDepthSamples: 64, MaxHalfWidth: 0.08f, MinWeight: 1));
                     }
                     catch (Exception ex)
                     {
