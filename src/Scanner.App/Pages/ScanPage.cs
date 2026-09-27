@@ -15,6 +15,9 @@ public sealed class ScanPage : ContentPage
     private readonly Button _startPause = new() { Text = "Start", IsEnabled = false };
     private readonly Button _finish = new() { Text = "Finish", IsEnabled = false };
     private LiveScanSession? _scan;
+
+    /// <summary>Most photos the finished scan refines, reconstructs and textures with.</summary>
+    private const int MaxFinishPhotos = 48;
     private string? _sessionId;
     private Window? _window;
     private bool _visible;
@@ -183,7 +186,11 @@ public sealed class ScanPage : ContentPage
             var (result, textured) = await Task.Run(() =>
             {
                 // The ARCore points only locate the piece: the geometry is the photos', fused in voxels.
-                var photos = scan.PreviewPhotos();
+                // At most MaxFinishPhotos, spread over the capture: a 47-photo scan was as good as a 90-photo one, and
+                // pose refinement and texturing grow with the count. Indices pair them with the stored photos.
+                var all = scan.PreviewPhotos();
+                var used = ViewSelection.References(all.Length, MaxFinishPhotos);
+                var photos = used.Select(i => all[i]).ToArray();
                 VoxelReconstruction? reconstruction = null;
                 if (scan.Target is { } target && photos.Length >= 3)
                 {
@@ -192,9 +199,11 @@ public sealed class ScanPage : ContentPage
                         // ARCore poses are only the starting guess: the photos refine them against each other first.
                         var log = new LogcatWriter();
                         photos = PoseRefiner.Refine(photos, target, log: log).Views;
+                        Console.WriteLine($"Scan3D: refined {photos.Length} of {all.Length} photos at {clock.Elapsed.TotalSeconds:F1} s");
                         reconstruction = PhotoVoxelReconstruction.Reconstruct(photos, target, scan.SnapshotPoints(),
                             new VoxelReconstructionOptions(ReferenceViews: 8, MaxDepthSamples: 64, MaxHalfWidth: 0.12f, MinWeight: 1),
                             log);
+                        Console.WriteLine($"Scan3D: reconstructed at {clock.Elapsed.TotalSeconds:F1} s");
                     }
                     catch (Exception ex)
                     {
@@ -210,8 +219,8 @@ public sealed class ScanPage : ContentPage
                     {
                         // The previews are the photos in capture order, so they pair with the stored photos one to one.
                         var stored = ScanSessionReader.ReadPhotos(directory);
-                        var cameras = stored.Count == photos.Length
-                            ? stored.Select((p, i) => TextureCamera.FromView(p.Photo, photos[i])).ToList()
+                        var cameras = stored.Count == all.Length
+                            ? used.Select((index, k) => TextureCamera.FromView(stored[index].Photo, photos[k])).ToList()
                             : stored.Select(p => TextureCamera.FromPhoto(p.Photo)).ToList();
                         TexturedModelFile.Write(directory, MeshTexturer.Texture(reconstruction.Mesh, cameras));
                         wroteModel = true;

@@ -43,9 +43,9 @@ public static class PoseRefiner
         if (views.Count < 3) return new PoseRefinement(original, 0, 0, 0, false);
 
         var clock = System.Diagnostics.Stopwatch.StartNew();
-        var corners = new CornerOptions(MaxCorners: options.MaxCorners, MinResponseRatio: options.MinResponseRatio);
+        var corners = Corners(options);
         var features = new List<Feature>[views.Count];
-        Parallel.For(0, views.Count, i => features[i] = CornerDetector.Detect(views[i].Image, corners));
+        Parallel.For(0, views.Count, i => features[i] = CornerDetector.DetectCached(views[i].Image, corners));
         var pairs = Pairs(views, target, options);
         log?.WriteLine($"  poses: corners {features.Average(c => c.Count):F0} per photo, {clock.ElapsedMilliseconds} ms");
         float f = views[0].Intrinsics.Fx;
@@ -66,6 +66,14 @@ public static class PoseRefiner
             return Rejected(original, log, "too few observations per photo");
         return new PoseRefinement(views2, result.Bundle.InitialRmsPx, result.Bundle.FinalRmsPx, observations, true);
     }
+
+    /// <summary>Finds the corners <see cref="Refine"/> will use, ahead of time: call it for each photo as the scan
+    /// records it.</summary>
+    public static void Prepare(PhotoView view, PoseRefinementOptions? options = null) =>
+        CornerDetector.DetectCached(view.Image, Corners(options ?? new PoseRefinementOptions()));
+
+    private static CornerOptions Corners(PoseRefinementOptions options) =>
+        new(MaxCorners: options.MaxCorners, MinResponseRatio: options.MinResponseRatio);
 
     private sealed record RoundResult(BundleResult Bundle, int Observations);
 

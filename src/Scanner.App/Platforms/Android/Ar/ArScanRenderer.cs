@@ -328,7 +328,12 @@ internal sealed class ArScanRenderer : Java.Lang.Object, GLSurfaceView.IRenderer
                 var preview = CameraImageReader.Preview(image);
                 if (!scan.AddPhoto(CameraImageReader.EncodeJpeg(image), image.Metadata, preview))
                     scan.ReleasePhotoReservation();
-                else OfferLive(scan, preview);
+                else
+                {
+                    // Corners now, while the phone waits for the next photo, rather than when the user presses Finish.
+                    PoseRefiner.Prepare(preview);
+                    OfferLive(scan, preview);
+                }
             }
             catch (Exception ex)
             {

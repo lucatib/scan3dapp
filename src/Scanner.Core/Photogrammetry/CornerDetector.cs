@@ -47,6 +47,22 @@ public static class CornerDetector
     // Window moves allowed while refining a corner; it settles in one or two unless the point is not a corner.
     private const int MaxRefinements = 5;
 
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<GrayImage, CachedCorners> Cache = new();
+
+    private sealed record CachedCorners(CornerOptions Options, List<Feature> Features);
+
+    /// <summary>
+    /// <see cref="Detect"/>, remembered for as long as <paramref name="image"/> lives: a photo can have its corners found
+    /// while the scan is still running, so that finishing the scan does not wait for them. Thread-safe.
+    /// </summary>
+    public static List<Feature> DetectCached(GrayImage image, CornerOptions options)
+    {
+        if (Cache.TryGetValue(image, out var cached) && cached.Options == options) return cached.Features;
+        var features = Detect(image, options);
+        Cache.AddOrUpdate(image, new CachedCorners(options, features));
+        return features;
+    }
+
     /// <summary>The photo's corners, strongest first, at sub-pixel positions (x right, y down, pixel centres at
     /// integers). The same photo and options always give the same list.</summary>
     public static List<Feature> Detect(GrayImage image, CornerOptions? options = null)
