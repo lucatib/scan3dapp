@@ -89,7 +89,7 @@ public sealed class ArScanViewHandler : ViewHandler<ArScanView, GLSurfaceView>
         {
             var virtualView = CurrentView;
             virtualView?.ReportStatus(new ArScanStatus("Unavailable", virtualView.Session?.State ?? LiveScanState.Idle,
-                0, 0, ex.Message));
+                0, 0, 0, ex.Message));
         }
     }
 
@@ -109,6 +109,7 @@ public sealed class ArScanViewHandler : ViewHandler<ArScanView, GLSurfaceView>
         var session = new Session(Context);
         try
         {
+            SelectPhotoCameraConfig(session);
             if (!session.IsDepthModeSupported(Config.DepthMode.Automatic!))
                 throw new NotSupportedException("This device does not support ARCore depth, which scanning requires.");
             var config = new Config(session);
@@ -123,6 +124,23 @@ public sealed class ArScanViewHandler : ViewHandler<ArScanView, GLSurfaceView>
             session.Close();
             throw;
         }
+    }
+
+    private static void SelectPhotoCameraConfig(Session session)
+    {
+        var original = session.CameraConfig;
+        using var filter = new CameraConfigFilter(session);
+        filter.SetFacingDirection(CameraConfig.FacingDirection.Back!);
+        foreach (var candidate in session.GetSupportedCameraConfigs(filter)!
+                     .Where(c => c.ImageSize!.Width <= 1920 && c.ImageSize!.Height <= 1080)
+                     .OrderByDescending(c => (long)c.ImageSize!.Width * c.ImageSize!.Height))
+        {
+            session.CameraConfig = candidate;
+            if (!session.IsDepthModeSupported(Config.DepthMode.Automatic!)) continue;
+            Android.Util.Log.Info("Scan3D", $"Photo camera image: {candidate.ImageSize}");
+            return;
+        }
+        session.CameraConfig = original;
     }
 
 }

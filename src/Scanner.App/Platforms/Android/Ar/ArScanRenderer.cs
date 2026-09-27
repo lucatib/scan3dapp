@@ -56,6 +56,7 @@ internal sealed class ArScanRenderer : Java.Lang.Object, GLSurfaceView.IRenderer
     private int _depthlessFrames; // GL thread only
     private bool _waitingForDepth; // GL thread only
     private int _integrating;
+    private int _capturingPhoto;
     private TimeSpan _lastUpload;
     private TimeSpan _lastStatus;
 
@@ -134,6 +135,7 @@ internal sealed class ArScanRenderer : Java.Lang.Object, GLSurfaceView.IRenderer
                 else if (state == LiveScanState.Recording)
                 {
                     if (Volatile.Read(ref _integrating) == 0) TryIntegrate(frame, camera, scan);
+                    TryCapturePhoto(frame, camera, scan);
                 }
 
                 camera.GetViewMatrix(_view, 0);
@@ -154,7 +156,7 @@ internal sealed class ArScanRenderer : Java.Lang.Object, GLSurfaceView.IRenderer
             _lastStatus = _clock.Elapsed;
             string? message = _message ?? (_waitingForDepth ? WaitingForDepthMessage : null);
             _reportStatus(new ArScanStatus(tracking, scan?.State ?? LiveScanState.Idle,
-                scan?.PointCount ?? 0, scan?.FrameCount ?? 0, message));
+                scan?.PointCount ?? 0, scan?.FrameCount ?? 0, scan?.PhotoCount ?? 0, message));
             _message = null;
         }
     }
@@ -229,6 +231,57 @@ internal sealed class ArScanRenderer : Java.Lang.Object, GLSurfaceView.IRenderer
                 Volatile.Write(ref _integrating, 0);
             }
         });
+    }
+
+    /// <summary>
+    /// Takes a camera photo when the scan asks for one: the copy off ARCore's pool happens here, the JPEG on the
+    /// thread pool. Failures are reported and swallowed - the depth scan is the deliverable and must not be
+    /// disturbed by a picture, which is why this does not share the integration slot either.
+    /// </summary>
+    private void TryCapturePhoto(ArFrame frame, Camera camera, LiveScanSession scan)
+    {
+        if (Interlocked.CompareExchange(ref _capturingPhoto, 1, 0) != 0) return; // previous photo still encoding
+
+        CameraImage? image;
+        bool reserved = false;
+        try
+        {
+            // The camera frame's own timestamp, the same clock the depth frames are stamped with, so a photo can
+            // be matched to the frames around it later.
+            double seconds = frame.Timestamp / 1e9;
+            reserved = scan.ShouldCapturePhoto(seconds);
+            image = reserved ? CameraImageReader.TryRead(frame, camera, seconds) : null;
+        }
+        catch (Exception ex)
+        {
+            _message = $"Could not take a photo: {ex.Message}";
+            image = null;
+        }
+
+        if (image is null)
+        {
+            if (reserved) scan.ReleasePhotoReservation();
+            Volatile.Write(ref _capturingPhoto, 0);
+            return;
+        }
+
+        scan.TrackPhotoCapture(Task.Run(() =>
+        {
+            try
+            {
+                if (!scan.AddPhoto(CameraImageReader.EncodeJpeg(image), image.Metadata, CameraImageReader.Preview(image)))
+                    scan.ReleasePhotoReservation();
+            }
+            catch (Exception ex)
+            {
+                _message = $"Could not save a photo: {ex.Message}";
+                scan.ReleasePhotoReservation();
+            }
+            finally
+            {
+                Volatile.Write(ref _capturingPhoto, 0);
+            }
+        }));
     }
 
     /// <summary>Counts consecutive draws without usable depth, so the UI can say why nothing is being recorded.</summary>

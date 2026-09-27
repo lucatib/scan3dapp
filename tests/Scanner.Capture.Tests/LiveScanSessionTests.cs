@@ -17,6 +17,54 @@ public sealed class LiveScanSessionTests : IDisposable
     private LiveScanSession NewSession(LiveScanOptions? options = null) =>
         new(new ScanSessionWriter(_dir, "live", "test"), options);
 
+    [Fact]
+    public async Task Pending_photo_worker_is_drained_and_failed_reservations_can_retry()
+    {
+        var session = NewSession(new LiveScanOptions(MaxPhotos: 1));
+        session.RequestStart();
+        session.SetTarget(Vector3.Zero, null);
+        Assert.True(session.ShouldCapturePhoto(0));
+        session.ReleasePhotoReservation();
+        Assert.True(session.ShouldCapturePhoto(1));
+        Assert.False(session.ShouldCapturePhoto(2));
+        var completed = new TaskCompletionSource();
+        session.TrackPhotoCapture(completed.Task);
+        Assert.False(session.WaitForPhotoCaptureAsync().IsCompleted);
+        completed.SetResult();
+        await session.WaitForPhotoCaptureAsync();
+    }
+
+    [Fact]
+    public void Photo_geometry_takes_priority_and_preserves_a_low_rim()
+    {
+        var session = NewSession(new LiveScanOptions(MinIsolatedPoints: 20));
+        session.RequestStart();
+        session.SetTarget(new Vector3(0, .02f, 0), 0);
+        var photos = new List<Vector3>();
+        for (int x=-30; x<=30; x++)
+        for (int z=-30; z<=30; z++) photos.Add(new(x*.005f, 0, z*.005f));
+        for (int x=-5; x<=5; x++)
+        for (int z=-5; z<=5; z++) photos.Add(new(x*.005f, .008f, z*.005f));
+        var depth = photos.Select(p => p.Y > 0 ? p + new Vector3(0,.006f,0) : p).ToArray();
+        var result = session.Complete(_ => depth, photoPoints: photos);
+        Assert.True(result.Isolated);
+        Assert.All(result.PiecePoints, p => Assert.InRange(p.Y, .0079f, .0081f));
+        Assert.Equal(121, ScanSessionReader.ReadManifest(_dir).PhotoPointCount);
+    }
+
+    [Fact]
+    public void Too_few_photo_points_keep_the_depth_result()
+    {
+        var session = NewSession();
+        session.RequestStart();
+        session.SetTarget(new Vector3(0,.04f,-.04f), null);
+        session.Integrate(TableAndBoxFrame(0), null);
+        var result = session.Complete(photoPoints: [new(0,.07f,0)]);
+        Assert.True(result.Isolated);
+        Assert.Equal(0, ScanSessionReader.ReadManifest(_dir).PhotoPointCount);
+        Assert.True(result.PiecePoints.Length >= 200);
+    }
+
     // 20x20 pixels, every pixel 1 m away on the camera's optical axis direction; identity pose.
     private static DepthFrame FlatFrame(double time)
     {

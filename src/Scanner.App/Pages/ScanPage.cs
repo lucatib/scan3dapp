@@ -2,6 +2,7 @@ using Scanner.App.Controls;
 using Scanner.App.Services;
 using Scanner.Capture.Live;
 using Scanner.Capture.Sessions;
+using Scanner.Core.Photogrammetry;
 
 namespace Scanner.App.Pages;
 
@@ -72,7 +73,7 @@ public sealed class ScanPage : ContentPage
         _arView.Pause();
 
         // Leaving without finishing discards the unfinished session.
-        if (_scan is not null && _scan.State != LiveScanState.Completed && _sessionId is not null)
+        if (!_finishing && _scan is not null && _scan.State != LiveScanState.Completed && _sessionId is not null)
         {
             _arView.Session = null;
             _scan.Pause();
@@ -86,6 +87,7 @@ public sealed class ScanPage : ContentPage
     /// Never throws: it is awaited from async void entry points, where an exception would kill the process.</summary>
     private async Task StartAsync()
     {
+        if (_finishing) return;
         try
         {
             if (_scan is null)
@@ -165,16 +167,37 @@ public sealed class ScanPage : ContentPage
     {
         if (_scan is null || _sessionId is null || _finishing) return;
         var scan = _scan;
+        string sessionId = _sessionId;
         _finishing = true;
         _finish.IsEnabled = false;
         _startPause.IsEnabled = false;
-        _status.Text = "Saving the 3D depth scan…";
+        _status.Text = "Reconstructing photos — this may take a minute…";
         scan.Pause();
+        _arView.Pause(); // drains the GL draw before waiting for its registered photo worker
         try
         {
-            var result = await Task.Run(() => scan.Complete());
+            await scan.WaitForPhotoCaptureAsync();
+            var result = await Task.Run(() =>
+            {
+                var photos = scan.PreviewPhotos();
+                System.Numerics.Vector3[] photoPoints = [];
+                if (scan.Target is { } target && photos.Length >= 3)
+                {
+                    try
+                    {
+                        photoPoints = PhotoReconstruction.DensePoints(photos, target,
+                            new ReconstructionOptions(ReferenceViews: 8,
+                                Stereo: new StereoOptions(DepthSamples: 64, MinScore: .65f))).ToArray();
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"Photo reconstruction failed: {ex}");
+                    }
+                }
+                return scan.Complete(photoPoints: photoPoints);
+            });
             _status.Text = result.Isolated ? "Piece isolated from the table." : "Could not isolate the piece; showing all points.";
-            await Shell.Current.GoToAsync($"preview?id={_sessionId}");
+            if (_visible) await Shell.Current.GoToAsync($"preview?id={sessionId}");
         }
         catch (Exception ex)
         {
@@ -186,6 +209,7 @@ public sealed class ScanPage : ContentPage
     {
         if (_scan is null || _finishing || _scan.State == LiveScanState.Completed) return;
         _status.Text = $"{status.Tracking} · {status.State} · {status.PointCount:N0} points · {status.FrameCount} depth frames"
+                       + $" · {status.PhotoCount} photos"
                        + (_scan.State == LiveScanState.Recording && !_scan.IsDepthReady
                            ? "\nWaiting for stable depth — keep the table in view and move slowly." : "")
                        + (status.Message is { } message ? $"\n{message}" : "");

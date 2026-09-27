@@ -19,13 +19,18 @@ clouds or meshes.
 - Depth frames are integrated at ~5 Hz into a 5 mm voxel point accumulator, filtered by depth range
   (0.10–1.50 m) and ARCore confidence. Startup accumulation waits for three populated depth frames whose
   detected surface heights agree within 1 cm; the status line explains the wait. Raw frames are still saved.
-- **Depth-only baseline**: photo capture and photogrammetry are disconnected from the app. The camera uses ARCore's default configuration.
+- **Photo-priority fusion**: captures up to 90 photos at 0.5-second intervals with camera poses and intrinsics.
+  Uses the largest CPU camera image up to 1920×1080 that supports depth. On Finish, an experimental stereo preview
+  reconstructs eight views at reduced resolution; points must agree across three views before they are accepted.
+  Photos and depth are isolated separately. Accepted photo geometry takes priority within 15 mm; isolated depth
+  fills gaps in a 2.5 mm voxel cloud. This is sampling resolution, not a claim of measurement accuracy.
 - On Finish, a support height that disagrees with the captured surface by more than 1.5 cm is replaced by the
   height measured from the point cloud. A robust plane fit follows the table slope and estimates a bounded noise
   margin (4–25 mm) from the depth noise below the table, assuming approximately symmetric noise. This removes thick
   table bands, but low object detail within that noise band is also lost. The piece is **isolated** from the table: points on or below that plane are dropped and the connected
   cluster nearest the target is kept (falls back to all points if isolation finds too few).
-- **Preview page**: saved 3D point cloud (drag to rotate, pinch to zoom). Finish saves the depth result without running photo reconstruction.
+- **Preview page**: saved 3D point cloud (drag to rotate, pinch to zoom), photo count and accepted photo-point count.
+  If photo reconstruction or its table isolation produces too few points, the preview explicitly reports a depth-only result.
 - Every scan is saved as a session folder on the device (see [Session format](#session-format)).
 
 The Windows target builds, but its views only show a placeholder message: scanning and the 3D preview are Android-only.
@@ -120,7 +125,9 @@ Each scan is a folder under the app's data directory (`<AppData>/sessions/<id>/`
 | `frames/NNNNNN.frame` | Binary depth frame: `S3DF` magic, intrinsics, timestamp, camera→world matrix, depth as uint16 mm, optional confidence bytes (little-endian) |
 | `photos/NNNNNN.jpg` + `.json` | Camera photo with its intrinsics, camera→world pose, timestamp and display rotation |
 
-New app scans contain depth frames and points only; the photo fields remain for compatibility with older sessions. The experimental reconstruction libraries and desktop processor remain in the repository but are not part of the phone app.
+New scans contain depth frames, photos and the final cloud. The optional manifest `PhotoPointCount` records accepted
+photo points before merge downsampling; older sessions default to zero and remain readable. Existing depth-only
+scans have no photos to reconstruct. The desktop processor remains available for higher-resolution processing.
 
 `ScanArchive.Export` zips a session folder into a portable `.scan` file. Version 1 sessions (without photos)
 still load.

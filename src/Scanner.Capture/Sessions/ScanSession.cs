@@ -18,7 +18,8 @@ public sealed record ScanManifest(
     float? SupportPlaneHeight,
     int PointCount,
     int PhotoCount = 0,
-    FittedSupportPlane? SupportPlane = null);
+    FittedSupportPlane? SupportPlane = null,
+    int PhotoPointCount = 0);
 
 /// <summary>What the platform layer has to supply about a photo; the writer turns it into a <see cref="ScanPhoto"/>.</summary>
 public readonly record struct ScanPhotoData(
@@ -84,13 +85,13 @@ public sealed class ScanSessionWriter
     }
 
     public void Complete(Vector3? target, float? supportPlaneHeight, IReadOnlyList<Vector3> points,
-        FittedSupportPlane? supportPlane = null)
+        FittedSupportPlane? supportPlane = null, int photoPointCount = 0)
     {
         using (var file = File.Create(Path.Combine(_directory, SessionPaths.Points)))
             PlyWriter.Write(file, points);
 
         var manifest = new ScanManifest(2, _id, _created, _device, FrameCount,
-            target is { } t ? [t.X, t.Y, t.Z] : null, supportPlaneHeight, points.Count, PhotoCount, supportPlane);
+            target is { } t ? [t.X, t.Y, t.Z] : null, supportPlaneHeight, points.Count, PhotoCount, supportPlane, photoPointCount);
         File.WriteAllText(Path.Combine(_directory, SessionPaths.Manifest), JsonSerializer.Serialize(manifest, SessionPaths.Json));
     }
 }

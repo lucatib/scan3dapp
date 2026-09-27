@@ -67,7 +67,11 @@ public sealed class PreviewPage : ContentPage
             _view.Points = points;
             _loadedId = id;
             _info.Text = $"{points.Length:N0} points · {manifest.FrameCount} depth frames"
-                         + $" · {manifest.CreatedUtc.LocalDateTime:g}\nDrag to rotate, pinch to zoom.";
+                         + $" · {manifest.PhotoCount} photos · {manifest.CreatedUtc.LocalDateTime:g}"
+                         + (manifest.PhotoPointCount > 0
+                             ? $"\nPhoto geometry preferred ({manifest.PhotoPointCount:N0} accepted points); depth fills gaps."
+                             : "\nDepth result only — no usable photo geometry.")
+                         + "\nDrag to rotate, pinch to zoom.";
         }
         catch (Exception ex)
         {

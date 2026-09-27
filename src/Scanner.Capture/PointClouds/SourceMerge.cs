@@ -3,8 +3,8 @@ using System.Numerics;
 namespace Scanner.Capture.PointClouds;
 
 /// <summary>
-/// Joins photogrammetry points and ARCore depth points into one voxel cloud. Photo points are far more precise
-/// (millimetres against centimetres), so averaging the two would only blur them: every photo point goes in, and an
+/// Joins validated photogrammetry points and ARCore depth points into one voxel cloud. Photo geometry takes
+/// priority rather than being averaged with depth: every photo point goes in, and an
 /// ARCore point goes in only where no photo point lies within <c>fillRadius</c> — on plain surfaces the photos
 /// could not match.
 /// </summary>

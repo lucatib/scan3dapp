@@ -50,6 +50,21 @@ public sealed class LiveScanSession
     private int _photosReserved;
 
     private int _photoCount;
+    private Task _photoCapture = Task.CompletedTask;
+
+    /// <summary>The renderer registers its photo worker before leaving the draw call.</summary>
+    public void TrackPhotoCapture(Task work) => Volatile.Write(ref _photoCapture, work);
+
+    /// <summary>Call after pausing the renderer so no new worker can be registered.</summary>
+    public Task WaitForPhotoCaptureAsync() => Volatile.Read(ref _photoCapture);
+
+    public void ReleasePhotoReservation()
+    {
+        lock (_gate)
+        {
+            if (_photosReserved > 0) _photosReserved--;
+        }
+    }
 
     /// <summary>Small copies of the photos for the on-phone preview. Guarded by <see cref="_writeGate"/>.</summary>
     private readonly List<PhotoView> _previews = [];
@@ -204,7 +219,8 @@ public sealed class LiveScanSession
     /// <summary>Stops the scan, isolates the piece around the target, writes points and manifest.</summary>
     /// <param name="enrich">Given the accumulated ARCore points, returns the points to isolate and write instead —
     /// the phone merges its photogrammetry points in here, so that they are cut from the table together.</param>
-    public LiveScanResult Complete(Func<Vector3[], Vector3[]>? enrich = null)
+    public LiveScanResult Complete(Func<Vector3[], Vector3[]>? enrich = null,
+        IReadOnlyList<Vector3>? photoPoints = null)
     {
         Vector3? target;
         float? supportPlaneHeight;
@@ -234,9 +250,28 @@ public sealed class LiveScanSession
                     : ObjectIsolator.Isolate(all, t, supportPlaneHeight, 2 * Options.VoxelSize)
                 : all;
             bool isolated = target is not null && piece.Length >= Options.MinIsolatedPoints;
+            int photoPointCount = 0;
+            if (target is { } photoTarget && photoPoints is { Count: > 0 })
+            {
+                // Fit the photo surface independently: the depth noise margin must not erase photo detail.
+                // Without a supported photo plane, retain the depth result rather than guessing a photo cutoff.
+                var photoPlane = SupportPlaneFinder.Fit(photoPoints);
+                if (photoPlane is { } fittedPhoto)
+                {
+                    var photoPiece = ObjectIsolator.IsolateAbovePlane(photoPoints, photoTarget,
+                        fittedPhoto, 2 * Options.VoxelSize);
+                    if (photoPiece.Length >= Options.MinIsolatedPoints)
+                    {
+                        photoPointCount = photoPiece.Length;
+                        piece = SourceMerge.Merge(photoPiece, isolated ? piece : [],
+                            voxelSize: .0025f, fillRadius: .015f);
+                        isolated = true;
+                    }
+                }
+            }
             if (!isolated) piece = all;
 
-            _writer.Complete(target, supportPlaneHeight, piece, plane);
+            _writer.Complete(target, supportPlaneHeight, piece, plane, photoPointCount);
             return new LiveScanResult(all, piece, isolated);
         }
     }
