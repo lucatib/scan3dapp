@@ -18,10 +18,14 @@ namespace Scanner.Core.Photogrammetry;
 /// <param name="MinWeight">Surface is only extracted where at least this many depth maps observed it.</param>
 /// <param name="MaxHalfWidth">The box reaches at most this far from the target horizontally, metres, padding included:
 /// the ARCore cluster of a small piece is often a blob several times its size.</param>
+/// <param name="Carve">Complete the surface into a solid from where the photos see through (<see cref="SpaceCarver"/>).</param>
+/// <param name="PieceMargin">Margin around a known piece extent, metres: the table ring beside the walls must be in the
+/// box for the carving to find them.</param>
 /// <param name="Stereo">Matching settings; <see cref="StereoOptions.DepthSamples"/> is replaced per depth map.</param>
 public sealed record VoxelReconstructionOptions(int ReferenceViews = 12, int Neighbours = 4, float VoxelSize = 0.003f,
     float TruncationVoxels = 4, float BoxPadding = 0.03f, int MinDepthSamples = 24, int MaxDepthSamples = 96,
-    float MinWeight = 2, float MaxHalfWidth = 0.10f, StereoOptions? Stereo = null);
+    float MinWeight = 2, float MaxHalfWidth = 0.10f, bool Carve = true, float PieceMargin = 0.025f,
+    StereoOptions? Stereo = null);
 
 /// <summary>The reconstructed piece: a surface mesh cut from the table (<paramref name="Surface"/> is before the cut), the table plane it was cut at,
 /// and the world box that was searched.</summary>
@@ -36,12 +40,19 @@ public sealed record VoxelReconstruction(TriangleMesh Mesh, TriangleMesh Surface
 /// </summary>
 public static class PhotoVoxelReconstruction
 {
+    /// <param name="piece">The extent of the piece when already known (the live surface): the box then hugs it
+    /// instead of ARCore's cluster, which is usually several times larger. Smaller crops, faster stereo.</param>
     public static VoxelReconstruction? Reconstruct(IReadOnlyList<PhotoView> views, Vector3 target,
-        IReadOnlyList<Vector3> guide, VoxelReconstructionOptions? options = null, TextWriter? log = null)
+        IReadOnlyList<Vector3> guide, VoxelReconstructionOptions? options = null, TextWriter? log = null,
+        (Vector3 Min, Vector3 Max)? piece = null)
     {
         options ??= new VoxelReconstructionOptions();
+        var clock = System.Diagnostics.Stopwatch.StartNew();
         var guidePlane = SupportPlaneFinder.Fit(guide);
-        var (boxMin, boxMax) = ObjectBox(guide, target, guidePlane, options.BoxPadding, options.MaxHalfWidth);
+        var (boxMin, boxMax) = piece is { } known
+            ? PadToTable(known.Min - new Vector3(options.PieceMargin), known.Max + new Vector3(options.PieceMargin),
+                guidePlane, options.BoxPadding)
+            : ObjectBox(guide, target, guidePlane, options.BoxPadding, options.MaxHalfWidth);
         var center = (boxMin + boxMax) / 2;
 
         var seeing = Enumerable.Range(0, views.Count).Where(i => Pinhole.Sees(views[i], center)).ToList();
@@ -59,12 +70,14 @@ public static class PhotoVoxelReconstruction
             int samples = Samples(crop, others, near, far, options);
             var stereo = (options.Stereo ?? new StereoOptions()) with { DepthSamples = samples };
             var map = PlaneSweepStereo.Compute(crop, others, near, far, stereo);
-            log?.WriteLine($"  photo {reference}: {width}x{height} px, {near:F3}-{far:F3} m, {samples} depths, {map.Depth.Count(d => d > 0)} matched");
+            log?.WriteLine($"  photo {reference}: {width}x{height} px, {near:F3}-{far:F3} m, {samples} depths, {map.Depth.Count(d => d > 0)} matched, {clock.ElapsedMilliseconds} ms");
             maps.Add((crop, map));
         }
         if (maps.Count < 3) return null;
 
         var filtered = DepthMapFusion.Filter(maps);
+        log?.WriteLine($"  cross-checked, {clock.ElapsedMilliseconds} ms");
+        var carvingMaps = new List<(PhotoView View, float[] Depth)>();
         var volume = new TsdfVolume(options.VoxelSize, options.TruncationVoxels * options.VoxelSize);
         for (int i = 0; i < maps.Count; i++)
         {
@@ -77,13 +90,23 @@ public static class PhotoVoxelReconstruction
                     depth[index] = 0;
             log?.WriteLine($"  map {i}: {depth.Count(d => d > 0)} confirmed points in the box");
             volume.Integrate(new DepthFrame(view.Intrinsics, depth, view.CameraToWorld, 0));
+            carvingMaps.Add((view, depth));
         }
 
         var mesh = SurfaceNets.Extract(volume, options.MinWeight);
+        log?.WriteLine($"  fused, {clock.ElapsedMilliseconds} ms");
         var plane = TablePlane(mesh.Positions, guidePlane);
-        var piece = MeshCleanup.Piece(mesh, target, plane, 2 * options.VoxelSize);
-        log?.WriteLine($"  mesh {mesh.Positions.Count} vertices, table {plane}, piece {piece.Positions.Count} vertices");
-        return new VoxelReconstruction(piece, mesh, plane, boxMin, boxMax, maps.Count);
+        if (options.Carve && plane is { } table)
+        {
+            // Walls and plain patches from where the photos see through, not only from where they matched.
+            SpaceCarver.Complete(volume, carvingMaps, boxMin, boxMax, table, MathF.Max(options.MinWeight, 1));
+            mesh = SurfaceNets.Extract(volume, options.MinWeight);
+            // The carved underside lies just above the table margin; cut a voxel lower so that it stays closed.
+            plane = table with { Margin = table.Margin - options.VoxelSize };
+        }
+        var result = MeshCleanup.Piece(mesh, target, plane, 2 * options.VoxelSize);
+        log?.WriteLine($"  mesh {mesh.Positions.Count} vertices, table {plane}, piece {result.Positions.Count} vertices, {clock.ElapsedMilliseconds} ms");
+        return new VoxelReconstruction(result, mesh, plane, boxMin, boxMax, maps.Count);
     }
 
     /// <summary>
@@ -146,6 +169,12 @@ public static class PhotoVoxelReconstruction
         var reach = new Vector3(maxHalfWidth, float.PositiveInfinity, maxHalfWidth);
         min = Vector3.Max(min, target - reach);
         max = Vector3.Min(max, target + reach);
+        return PadToTable(min, max, plane, padding);
+    }
+
+    /// <summary>The box reaching down past the table, so that a ring of it is reconstructed too.</summary>
+    private static (Vector3 Min, Vector3 Max) PadToTable(Vector3 min, Vector3 max, FittedSupportPlane? plane, float padding)
+    {
         if (plane is { } table)
         {
             float lowest = MathF.Min(MathF.Min(table.HeightAt(min.X, min.Z), table.HeightAt(max.X, min.Z)),

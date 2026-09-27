@@ -203,8 +203,12 @@ internal sealed class ArScanRenderer : Java.Lang.Object, GLSurfaceView.IRenderer
             try
             {
                 while (_livePhotos.TryDequeue(out var queued)) live.Remember(queued);
-                if (scan.State == LiveScanState.Recording && scan.Target is { } target && ReferenceEquals(live, _live))
-                    live.Add(target, scan.SnapshotPoints());
+                if (scan.State == LiveScanState.Recording && scan.Target is { } target && ReferenceEquals(live, _live)
+                    && live.Add(target, scan.SnapshotPoints()) && live.Surface is { Positions.Count: > 0 } surface)
+                {
+                    // Finishing crops the photos to this rather than to ARCore's much larger guess.
+                    scan.SetPieceBounds(surface.Positions.Aggregate(Vector3.Min), surface.Positions.Aggregate(Vector3.Max));
+                }
             }
             catch (Exception ex)
             {

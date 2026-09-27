@@ -216,6 +216,14 @@ public sealed class LiveScanSession
 
     public Vector3[] SnapshotPoints() => _accumulator.Snapshot();
 
+    private Vector3[]? _pieceBounds;
+
+    /// <summary>The extent of the piece as the live photo reconstruction sees it (min, max), or null before it has
+    /// a surface. Any thread.</summary>
+    public (Vector3 Min, Vector3 Max)? PieceBounds => Volatile.Read(ref _pieceBounds) is { } b ? (b[0], b[1]) : null;
+
+    public void SetPieceBounds(Vector3 min, Vector3 max) => Volatile.Write(ref _pieceBounds, [min, max]);
+
     /// <summary>Stops the scan, isolates the piece around the target, writes points and manifest.</summary>
     /// <param name="enrich">Given the accumulated ARCore points, returns the points to isolate and write instead —
     /// the phone merges its photogrammetry points in here, so that they are cut from the table together.</param>

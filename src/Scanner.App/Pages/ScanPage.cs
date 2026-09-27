@@ -202,7 +202,7 @@ public sealed class ScanPage : ContentPage
                         Console.WriteLine($"Scan3D: refined {photos.Length} of {all.Length} photos at {clock.Elapsed.TotalSeconds:F1} s");
                         reconstruction = PhotoVoxelReconstruction.Reconstruct(photos, target, scan.SnapshotPoints(),
                             new VoxelReconstructionOptions(ReferenceViews: 8, MaxDepthSamples: 64, MaxHalfWidth: 0.12f, MinWeight: 1),
-                            log);
+                            log, scan.PieceBounds);
                         Console.WriteLine($"Scan3D: reconstructed at {clock.Elapsed.TotalSeconds:F1} s");
                     }
                     catch (Exception ex)
