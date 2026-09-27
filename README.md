@@ -21,7 +21,8 @@ clouds or meshes.
   detected surface heights agree within 1 cm; the status line explains the wait. Raw frames are still saved.
 - **Depth-only baseline**: photo capture and photogrammetry are disconnected from the app. The camera uses ARCore's default configuration.
 - On Finish, a support height that disagrees with the captured surface by more than 1.5 cm is replaced by the
-  height measured from the point cloud. The piece is **isolated** from the table: points on the support plane are dropped and the connected
+  height measured from the point cloud. A robust plane fit follows the table slope and estimates a bounded noise
+  margin (4–7 mm). The piece is **isolated** from the table: points on or below that plane are dropped and the connected
   cluster nearest the target is kept (falls back to all points if isolation finds too few).
 - **Preview page**: saved 3D point cloud (drag to rotate, pinch to zoom). Finish saves the depth result without running photo reconstruction.
 - Every scan is saved as a session folder on the device (see [Session format](#session-format)).
@@ -113,7 +114,7 @@ Each scan is a folder under the app's data directory (`<AppData>/sessions/<id>/`
 
 | Path | Contents |
 |---|---|
-| `manifest.json` | Format version (2), id, creation time, device model, frame/point/photo counts, target point, support-plane height |
+| `manifest.json` | Format version (2), id, creation time, device model, frame/point/photo counts, target point, support-plane height and fitted plane coefficients/margin |
 | `points.ply` | Isolated point cloud (metres, world frame, +Y up) |
 | `frames/NNNNNN.frame` | Binary depth frame: `S3DF` magic, intrinsics, timestamp, camera→world matrix, depth as uint16 mm, optional confidence bytes (little-endian) |
 | `photos/NNNNNN.jpg` + `.json` | Camera photo with its intrinsics, camera→world pose, timestamp and display rotation |

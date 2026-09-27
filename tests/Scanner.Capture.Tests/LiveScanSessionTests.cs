@@ -25,6 +25,27 @@ public sealed class LiveScanSessionTests : IDisposable
     }
 
     [Fact]
+    public void Complete_separates_the_object_from_a_tilted_table()
+    {
+        var session = NewSession();
+        session.RequestStart();
+        session.SetTarget(new Vector3(0, .042f, -.04f), null);
+        var frame = TableAndBoxFrame(0);
+        var tilt = Matrix4x4.Identity;
+        tilt.M12 = .08f;
+        tilt.M32 = -.05f;
+        session.Integrate(frame with { CameraToWorld = frame.CameraToWorld * tilt }, null);
+        var result = session.Complete();
+        Assert.True(result.Isolated);
+        Assert.NotEmpty(result.PiecePoints);
+        Assert.True(result.PiecePoints.All(p => MathF.Abs(p.X) < .045f && MathF.Abs(p.Z) < .045f));
+        Assert.True(result.PiecePoints.All(p => p.Y - .08f*p.X + .05f*p.Z > .004f));
+        var fitted = ScanSessionReader.ReadManifest(_dir).SupportPlane;
+        Assert.NotNull(fitted);
+        Assert.InRange(fitted.Value.SlopeX, .075f, .085f);
+        Assert.InRange(fitted.Value.SlopeZ, -.055f, -.045f);
+    }
+    [Fact]
     public void Startup_frames_are_saved_but_do_not_enter_the_cloud()
     {
         var session = NewSession(new LiveScanOptions(RequireStableDepth: true));

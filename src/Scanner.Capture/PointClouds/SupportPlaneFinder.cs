@@ -42,5 +42,38 @@ public static class SupportPlaneFinder
         return sum / n;
     }
 
+    /// <summary>Fits a gently tilted table near the detected support level. Robust refitting excludes
+    /// object points; a bounded noise margin accounts for the thickness of the observed surface.</summary>
+    public static FittedSupportPlane? Fit(IReadOnlyList<Vector3> points)
+    {
+        if (Find(points) is not { } height) return null;
+        var selected = points.Where(p => MathF.Abs(p.Y - height) <= .015f).ToArray();
+        FittedSupportPlane plane = new(0, 0, height);
+        for (int iteration = 0; iteration < 5; iteration++)
+        {
+            if (selected.Length < 30) return null;
+            double mx = selected.Average(p => (double)p.X), my = selected.Average(p => (double)p.Y),
+                mz = selected.Average(p => (double)p.Z);
+            double xx = 0, zz = 0, xz = 0, xy = 0, zy = 0;
+            foreach (var p in selected)
+            {
+                double x = p.X - mx, y = p.Y - my, z = p.Z - mz;
+                xx += x*x; zz += z*z; xz += x*z; xy += x*y; zy += z*y;
+            }
+            double det = xx*zz - xz*xz;
+            if (xx / selected.Length < .0001 || zz / selected.Length < .0001 || det <= 1e-6 * xx * zz)
+                return null; // insufficient two-dimensional support
+            double a = (xy*zz - zy*xz)/det, b = (zy*xx - xy*xz)/det;
+            if (a*a + b*b > .13) return null; // about 20 degrees: walls are not tables
+            plane = new((float)a, (float)b, (float)(my - a*mx - b*mz));
+            selected = points.Where(p => MathF.Abs(p.Y - plane.HeightAt(p.X, p.Z)) <= .005f).ToArray();
+        }
+        if (selected.Length < points.Count / 10) return null;
+        // Use the central surface band only: taller object geometry must not inflate the removal margin.
+        var residuals = selected.Select(p => MathF.Abs(p.Y - plane.HeightAt(p.X, p.Z))).Order().ToArray();
+        if (residuals.Length == 0) return null;
+        float margin = Math.Clamp(residuals[(int)((residuals.Length - 1) * .9)] + .002f, .004f, .007f);
+        return plane with { Margin = margin };
+    }
     private static int Bin(float y, float binSize) => (int)MathF.Floor(y / binSize);
 }

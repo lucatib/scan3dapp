@@ -227,13 +227,16 @@ public sealed class LiveScanSession
             if (measuredSupport is { } measured &&
                 (supportPlaneHeight is null || MathF.Abs(supportPlaneHeight.Value - measured) > .015f))
                 supportPlaneHeight = measured;
+            var plane = SupportPlaneFinder.Fit(all);
             var piece = target is { } t
-                ? ObjectIsolator.Isolate(all, t, supportPlaneHeight, 2 * Options.VoxelSize)
+                ? plane is { } fitted
+                    ? ObjectIsolator.IsolateAbovePlane(all, t, fitted, 2 * Options.VoxelSize)
+                    : ObjectIsolator.Isolate(all, t, supportPlaneHeight, 2 * Options.VoxelSize)
                 : all;
             bool isolated = target is not null && piece.Length >= Options.MinIsolatedPoints;
             if (!isolated) piece = all;
 
-            _writer.Complete(target, supportPlaneHeight, piece);
+            _writer.Complete(target, supportPlaneHeight, piece, plane);
             return new LiveScanResult(all, piece, isolated);
         }
     }

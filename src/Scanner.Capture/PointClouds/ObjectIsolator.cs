@@ -13,6 +13,19 @@ public static class ObjectIsolator
         var kept = supportPlaneHeight is { } height
             ? points.Where(p => p.Y > height + planeMargin).ToList()
             : points.ToList();
+        return ConnectedPiece(kept, target, linkDistance);
+    }
+
+    public static Vector3[] IsolateAbovePlane(IReadOnlyList<Vector3> points, Vector3 target,
+        FittedSupportPlane plane, float linkDistance)
+    {
+        if (linkDistance <= 0) throw new ArgumentOutOfRangeException(nameof(linkDistance));
+        var kept = points.Where(p => p.Y > plane.HeightAt(p.X, p.Z) + plane.Margin).ToList();
+        return ConnectedPiece(kept, target, linkDistance);
+    }
+
+    private static Vector3[] ConnectedPiece(List<Vector3> kept, Vector3 target, float linkDistance)
+    {
         if (kept.Count == 0) return [];
 
         var cells = new Dictionary<(int, int, int), List<int>>();
