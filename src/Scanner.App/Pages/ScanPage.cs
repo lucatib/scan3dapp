@@ -18,7 +18,7 @@ public sealed class ScanPage : ContentPage
     private LivePhotogrammetry? _live;
 
     /// <summary>Settings of the photogrammetry that runs during the scan.</summary>
-    private static readonly VoxelReconstructionOptions LiveOptions = new(MaxDepthSamples: 64, MaxHalfWidth: 0.12f, MinWeight: 1);
+    private static readonly VoxelReconstructionOptions LiveOptions = new(MaxDepthSamples: 64, MaxHalfWidth: 0.12f, MinWeight: 3);
 
     /// <summary>New photos between pose refinements during the scan.</summary>
     private const int RefineEvery = 8;

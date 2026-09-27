@@ -23,10 +23,12 @@ public sealed class LiveReconstruction
     private const int MinConfirmed = 100;
 
     private readonly VoxelReconstructionOptions _options;
+    private readonly int _minAgreeing;
     private readonly List<Entry> _maps = [];
     private TsdfVolume _volume;
     private int _fusedVersion = -1;
     private int _lastPhoto = -1;
+    private int _shownVersion = -1;
     private TriangleMesh? _surface;
     private Vector3 _boxMin = new(float.PositiveInfinity), _boxMax = new(float.NegativeInfinity);
     private FittedSupportPlane? _table; // locked once the photos measured it
@@ -41,9 +43,11 @@ public sealed class LiveReconstruction
         public float[]? Confirmed { get; set; }
     }
 
-    public LiveReconstruction(VoxelReconstructionOptions? options = null)
+    /// <param name="minAgreeing">Other depth maps that must confirm a pixel before it is fused.</param>
+    public LiveReconstruction(VoxelReconstructionOptions? options = null, int minAgreeing = 1)
     {
         _options = options ?? new VoxelReconstructionOptions();
+        _minAgreeing = minAgreeing;
         _volume = NewVolume();
     }
 
@@ -99,8 +103,11 @@ public sealed class LiveReconstruction
             if (measured) _table = plane;
         }
         var piece = MeshCleanup.Piece(mesh, target, plane, 2 * _options.VoxelSize);
-        // The live view must only grow: a surface that suddenly halves is an unlucky update, not the scan shrinking.
-        if (Surface is { } shown && piece.Positions.Count < shown.Positions.Count / 2) return false;
+        // Between pose updates the live view must only grow: a surface that suddenly halves is an unlucky update, not the
+        // scan shrinking. After a pose update it may: fused again with better poses, splatter goes. Refusing that froze
+        // an exploded surface on screen for the rest of a scan.
+        if (Surface is { } shown && _shownVersion == poseVersion && piece.Positions.Count < shown.Positions.Count / 2) return false;
+        _shownVersion = poseVersion;
         Volatile.Write(ref _surface, piece);
         return true;
     }
@@ -134,7 +141,7 @@ public sealed class LiveReconstruction
         for (int i = 0; i < window.Count; i++)
         {
             if (window[i].Confirmed is not null) continue;
-            var confirmed = DepthMapFusion.Confirmed(pairs, i, minAgreeing: 1);
+            var confirmed = DepthMapFusion.Confirmed(pairs, i, _minAgreeing);
             var view = window[i].Crop;
             int count = 0;
             for (int v = 0, pixel = 0; v < confirmed.Height; v++)
