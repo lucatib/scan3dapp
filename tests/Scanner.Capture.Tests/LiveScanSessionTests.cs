@@ -25,6 +25,33 @@ public sealed class LiveScanSessionTests : IDisposable
     }
 
     [Fact]
+    public void Startup_frames_are_saved_but_do_not_enter_the_cloud()
+    {
+        var session = NewSession(new LiveScanOptions(RequireStableDepth: true));
+        session.RequestStart();
+        session.SetTarget(new Vector3(0, 0.04f, -0.04f), null);
+        session.Integrate(TableAndBoxFrame(0), null);
+        Assert.Empty(session.SnapshotPoints());
+        Assert.Equal(1, session.FrameCount);
+        session.Integrate(TableAndBoxFrame(.2), null);
+        Assert.Empty(session.SnapshotPoints());
+        session.Integrate(TableAndBoxFrame(.4), null);
+        Assert.NotEmpty(session.SnapshotPoints());
+    }
+
+    [Fact]
+    public void Complete_replaces_a_remote_support_plane_with_the_captured_table()
+    {
+        var session = NewSession();
+        session.RequestStart();
+        session.SetTarget(new Vector3(0, .04f, -.04f), -.45f);
+        session.Integrate(TableAndBoxFrame(0), null);
+        var result = session.Complete();
+        Assert.True(result.Isolated);
+        Assert.All(result.PiecePoints, p => Assert.True(p.Y > .004f));
+        Assert.InRange(ScanSessionReader.ReadManifest(_dir).SupportPlaneHeight ?? float.NaN, -.003f, .003f);
+    }
+    [Fact]
     public void Start_waits_for_target_then_records_with_throttling()
     {
         var session = NewSession();
@@ -296,12 +323,12 @@ public sealed class LiveScanSessionTests : IDisposable
     {
         var session = NewSession();
         session.RequestStart();
-        session.SetTarget(new Vector3(0, 0.04f, -0.04f), 0.02f);
+        session.SetTarget(new Vector3(0, 0.04f, -0.04f), 0.002f);
         session.Integrate(TableAndBoxFrame(0), null);
 
         session.Complete();
 
-        Assert.Equal(0.02f, ScanSessionReader.ReadManifest(_dir).SupportPlaneHeight);
+        Assert.Equal(0.002f, ScanSessionReader.ReadManifest(_dir).SupportPlaneHeight);
     }
 
     // 160x120 depth of an 8 cm box standing on a 60 cm table at y = 0, seen from 35 cm up and 35 cm back, looking

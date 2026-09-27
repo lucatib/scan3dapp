@@ -13,7 +13,8 @@ public sealed record LiveScanOptions(
     DepthFilter? Filter = null,
     int MinIsolatedPoints = 200,
     double PhotoIntervalSeconds = 0.5,
-    int MaxPhotos = 90);
+    int MaxPhotos = 90,
+    bool RequireStableDepth = false);
 
 public sealed record LiveScanResult(Vector3[] AllPoints, Vector3[] PiecePoints, bool Isolated);
 
@@ -29,6 +30,7 @@ public sealed class LiveScanSession
 {
     private readonly ScanSessionWriter _writer;
     private readonly VoxelPointAccumulator _accumulator;
+    private readonly DepthStartupGate _startup = new();
 
     /// <summary>Guards the state transitions and the target. Never held across file I/O.</summary>
     private readonly object _gate = new();
@@ -66,6 +68,8 @@ public sealed class LiveScanSession
     public Vector3? Target { get; private set; }
     public float? SupportPlaneHeight { get; private set; }
     public int PointCount => _accumulator.CellCount;
+    public bool IsDepthReady => !Options.RequireStableDepth || Volatile.Read(ref _depthReady);
+    private bool _depthReady;
 
     /// <summary>Frames written so far; published only after the frame is on disk.</summary>
     public int FrameCount => Volatile.Read(ref _frameCount);
@@ -186,11 +190,13 @@ public sealed class LiveScanSession
         lock (_writeGate)
         {
             if (_state == LiveScanState.Completed) return 0;
-            _accumulator.AddRange(points);
+            bool accept = !Options.RequireStableDepth || _startup.Accept(points, frame.Depth.Length);
+            Volatile.Write(ref _depthReady, accept);
+            if (accept) _accumulator.AddRange(points);
             _writer.AppendFrame(frame, confidence);
             Volatile.Write(ref _frameCount, _writer.FrameCount);
         }
-        return points.Count;
+        return IsDepthReady ? points.Count : 0;
     }
 
     public Vector3[] SnapshotPoints() => _accumulator.Snapshot();
@@ -215,9 +221,12 @@ public sealed class LiveScanSession
         {
             var all = _accumulator.Snapshot();
             if (enrich is not null) all = enrich(all);
-            // ARCore often has not found the table yet when Start is pressed; then it is found in the scan itself,
-            // or it is never cut away and links everything into one piece.
-            supportPlaneHeight ??= SupportPlaneFinder.Find(all);
+            // Validate the initial ARCore plane against the captured surface: it may be the floor or a stale
+            // height selected before depth settled. Keep a compatible plane, replace a remote one.
+            var measuredSupport = SupportPlaneFinder.Find(all);
+            if (measuredSupport is { } measured &&
+                (supportPlaneHeight is null || MathF.Abs(supportPlaneHeight.Value - measured) > .015f))
+                supportPlaneHeight = measured;
             var piece = target is { } t
                 ? ObjectIsolator.Isolate(all, t, supportPlaneHeight, 2 * Options.VoxelSize)
                 : all;

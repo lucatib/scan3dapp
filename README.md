@@ -17,9 +17,11 @@ clouds or meshes.
   app opens, the table is found on Finish in the scan itself: the lowest height level holding a large share of
   the points. Only depth points within 30 cm of the target are accumulated.
 - Depth frames are integrated at ~5 Hz into a 5 mm voxel point accumulator, filtered by depth range
-  (0.10–1.50 m) and ARCore confidence.
+  (0.10–1.50 m) and ARCore confidence. Startup accumulation waits for three populated depth frames whose
+  detected surface heights agree within 1 cm; the status line explains the wait. Raw frames are still saved.
 - **Depth-only baseline**: photo capture and photogrammetry are disconnected from the app. The camera uses ARCore's default configuration.
-- On Finish, the piece is **isolated** from the table: points on the support plane are dropped and the connected
+- On Finish, a support height that disagrees with the captured surface by more than 1.5 cm is replaced by the
+  height measured from the point cloud. The piece is **isolated** from the table: points on the support plane are dropped and the connected
   cluster nearest the target is kept (falls back to all points if isolation finds too few).
 - **Preview page**: saved 3D point cloud (drag to rotate, pinch to zoom). Finish saves the depth result without running photo reconstruction.
 - Every scan is saved as a session folder on the device (see [Session format](#session-format)).

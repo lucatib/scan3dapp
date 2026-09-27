@@ -112,7 +112,8 @@ public sealed class ScanPage : ContentPage
                 var (id, directory) = _store.CreateNew();
                 _sessionId = id;
                 // ScanSessionWriter creates the session folder, so this can fail on a full or read-only volume.
-                _scan = new LiveScanSession(new ScanSessionWriter(directory, id, DeviceInfo.Current.Model));
+                _scan = new LiveScanSession(new ScanSessionWriter(directory, id, DeviceInfo.Current.Model),
+                    new LiveScanOptions(RequireStableDepth: true));
                 _arView.Session = _scan;
                 _startPause.IsEnabled = true;
                 _status.Text = "Aim the crosshair at the piece and press Start.";
@@ -185,6 +186,8 @@ public sealed class ScanPage : ContentPage
     {
         if (_scan is null || _finishing || _scan.State == LiveScanState.Completed) return;
         _status.Text = $"{status.Tracking} · {status.State} · {status.PointCount:N0} points · {status.FrameCount} depth frames"
+                       + (_scan.State == LiveScanState.Recording && !_scan.IsDepthReady
+                           ? "\nWaiting for stable depth — keep the table in view and move slowly." : "")
                        + (status.Message is { } message ? $"\n{message}" : "");
         UpdateButtons();
     }
@@ -194,6 +197,6 @@ public sealed class ScanPage : ContentPage
         if (_scan is null || _scan.State == LiveScanState.Completed) return;
         bool running = _scan.State is LiveScanState.Recording or LiveScanState.WaitingForTarget;
         _startPause.Text = running ? "Pause" : _scan.FrameCount > 0 ? "Resume" : "Start";
-        _finish.IsEnabled = _scan.FrameCount > 0;
+        _finish.IsEnabled = _scan.PointCount > 0;
     }
 }
