@@ -39,7 +39,7 @@ public static class SpaceCarver
             for (int i = 0; i < nx; i++)
             {
                 var p = volume.VoxelToWorld(x0 + i, y0 + j, z0 + k);
-                solid[(k * ny + j) * nx + i] = p.Y > table.HeightAt(p.X, p.Z) + table.Margin && IsSolid(maps, p, s, table) ? -1 : 1;
+                solid[(k * ny + j) * nx + i] = p.Y > Bottom(table, p, s) && IsSolid(maps, p, s, table) ? -1 : 1;
             }
         });
 
@@ -72,14 +72,21 @@ public static class SpaceCarver
             int x = x0 + i, y = y0 + j, z = z0 + k;
             var p = volume.VoxelToWorld(x, y, z);
             float value = smooth[(k * ny + j) * nx + i];
-            if (p.Y <= table.HeightAt(p.X, p.Z) + table.Margin) value = 1; // no table surface, a closed underside
-            // Measured surface is more precise than the carved one: keep it where the TSDF has it.
-            // Where it has one it wins even against the carving: with little see-through evidence the carving alone
-            // once declared a measured book top empty.
-            else if (volume.TryGet(x, y, z, out float tsdf, out float measured) && measured > 0 && MathF.Abs(tsdf) < 1) continue;
+            if (p.Y <= Bottom(table, p, s)) value = 1; // no table surface, a closed underside
+            // Measured surface is more precise than the carved one: keep it where the TSDF has it, even against the
+            // carving (with little see-through evidence the carving alone once declared a measured book top empty).
+            // Not near the table, though: the surface measured there is the floor, and kept it left a fringe of it.
+            else if (p.Y > FloorZone(table, p, s) && volume.TryGet(x, y, z, out float tsdf, out float measured) && measured > 0 && MathF.Abs(tsdf) < 1) continue;
             volume.Set(x, y, z, value, weight);
         }
     }
+
+    /// <summary>The solid starts a voxel above the table: its underside then lies on the table, and walls reach it.</summary>
+    public static float Bottom(FittedSupportPlane table, Vector3 p, float voxelSize) => table.HeightAt(p.X, p.Z) + voxelSize;
+
+    /// <summary>Up to here, within the table's noise, the measured surface is floor: the carving alone decides.</summary>
+    private static float FloorZone(FittedSupportPlane table, Vector3 p, float voxelSize) =>
+        table.HeightAt(p.X, p.Z) + table.Margin + 2 * voxelSize;
 
     /// <summary>No depth map sees through <paramref name="p"/>, and enough see it behind the piece's surface. Only a
     /// surface above the table counts: floor hides the voxels just under it too, and counting that made a slab of floor

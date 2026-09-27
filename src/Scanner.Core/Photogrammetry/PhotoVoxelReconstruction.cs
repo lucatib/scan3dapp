@@ -104,10 +104,12 @@ public static class PhotoVoxelReconstruction
             // Walls and plain patches from where the photos see through, not only from where they matched.
             SpaceCarver.Complete(volume, carvingMaps, boxMin, boxMax, table, MathF.Max(options.MinWeight, 1));
             mesh = SurfaceNets.Extract(volume, options.MinWeight);
-            // The carved underside lies just above the table margin; cut a voxel lower so that it stays closed.
-            plane = table with { Margin = table.Margin - options.VoxelSize };
+            // The carved underside lies a voxel or two above the table: cut at the table itself so that it stays.
+            plane = table with { Margin = 0 };
         }
         var result = MeshCleanup.Piece(mesh, target, plane, 2 * options.VoxelSize);
+        if (options.Carve && plane is { } carvedOn)
+            MeshCleanup.FlattenOnto(result, carvedOn, 2.5f * options.VoxelSize); // a flat base and a clean bottom edge
         log?.WriteLine($"  mesh {mesh.Positions.Count} vertices, table {plane}, piece {result.Positions.Count} vertices, {clock.ElapsedMilliseconds} ms");
         return new VoxelReconstruction(result, mesh, plane, boxMin, boxMax, maps.Count);
     }

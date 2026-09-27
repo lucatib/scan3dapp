@@ -94,6 +94,22 @@ public static class MeshCleanup
         return result;
     }
 
+    /// <summary>
+    /// Moves every vertex within <paramref name="band"/> above the table down onto it. The carved solid ends in a voxel
+    /// staircase just above the table, which reads as spikes along the bottom of the walls; flattened, the underside is
+    /// a plane on the table and the walls meet it in a clean edge.
+    /// </summary>
+    public static void FlattenOnto(TriangleMesh mesh, FittedSupportPlane table, float band)
+    {
+        for (int i = 0; i < mesh.Positions.Count; i++)
+        {
+            var p = mesh.Positions[i];
+            float floor = table.HeightAt(p.X, p.Z);
+            if (p.Y - floor > band) continue;
+            mesh.Positions[i] = p with { Y = floor };
+        }
+    }
+
     private static (int, int, int) Cell(Vector3 p, float size) =>
         ((int)MathF.Floor(p.X / size), (int)MathF.Floor(p.Y / size), (int)MathF.Floor(p.Z / size));
 }

@@ -48,28 +48,41 @@ public static class MeshTexturer
         {
             int a = indices[3 * t], b = indices[3 * t + 1], d = indices[3 * t + 2];
             var centroid = (positions[a] + positions[b] + positions[d]) / 3;
-            var normal = mesh.Normals[a] + mesh.Normals[b] + mesh.Normals[d];
-            if (normal.LengthSquared() < 1e-12f) return;
+            // The triangle's own normal, turned to agree with its vertex normals (which know outside from inside): vertex
+            // normals alone mislead where the mesh was reshaped, as along the flattened base.
+            var normal = Vector3.Cross(positions[b] - positions[a], positions[d] - positions[a]);
+            if (normal.LengthSquared() < 1e-18f) return;
             normal = Vector3.Normalize(normal);
+            if (Vector3.Dot(normal, mesh.Normals[a] + mesh.Normals[b] + mesh.Normals[d]) < 0) normal = -normal;
 
-            int best = -1;
-            float bestScore = 0;
-            for (int c = 0; c < cameras.Count; c++)
+            int Best(bool strict)
             {
-                var camera = cameras[c];
-                var toCamera = camera.CameraToWorld.Translation - centroid;
-                float distance = toCamera.Length();
-                float facing = Vector3.Dot(normal, toCamera / distance);
-                if (facing < MinFacing) continue;
-                if (!Inside(camera, positions[a]) || !Inside(camera, positions[b]) || !Inside(camera, positions[d])) continue;
-                if (!Visible(buffers[c], camera, centroid)) continue;
-                float score = facing * camera.Intrinsics.Fx / distance;
-                if (score > bestScore)
+                int best = -1;
+                float bestScore = 0;
+                for (int c = 0; c < cameras.Count; c++)
                 {
-                    bestScore = score;
-                    best = c;
+                    var camera = cameras[c];
+                    var toCamera = camera.CameraToWorld.Translation - centroid;
+                    float distance = toCamera.Length();
+                    float facing = Vector3.Dot(normal, toCamera / distance);
+                    if (facing < (strict ? MinFacing : 0)) continue;
+                    if (!Inside(camera, positions[a]) || !Inside(camera, positions[b]) || !Inside(camera, positions[d])) continue;
+                    if (strict && !Visible(buffers[c], camera, centroid)) continue;
+                    float score = facing * camera.Intrinsics.Fx / distance;
+                    if (score > bestScore)
+                    {
+                        bestScore = score;
+                        best = c;
+                    }
                 }
+                return best;
             }
+
+            // A triangle no photo shows clearly still gets the best photo facing it: near the table the carved walls are
+            // rough at the voxel scale and half-shadowed in the coarse visibility buffers, and grey read worse than a
+            // patch of wall from a slightly occluded view. Only the underside, which no photo faces, stays untextured.
+            int best = Best(strict: true);
+            if (best < 0) best = Best(strict: false);
             if (best < 0) return;
             var chosen = cameras[best];
             photos[t] = chosen.PhotoIndex;
@@ -95,7 +108,9 @@ public static class MeshTexturer
 
     private static float Scale(CameraIntrinsics k) => (float)BufferSize / Math.Max(k.Width, k.Height);
 
-    /// <summary>The nearest mesh depth per buffer pixel, rasterizing every triangle at reduced resolution.</summary>
+    /// <summary>The nearest mesh depth per buffer pixel, rasterizing every triangle at reduced resolution, with its depth
+    /// interpolated across it (1/z is linear on screen). Filling each triangle's bounding box with its nearest corner
+    /// instead hid the lower part of the walls behind the underside, and left them untextured.</summary>
     private static float[] DepthBuffer(Vector3[] positions, int[] indices, TextureCamera camera)
     {
         var k = camera.Intrinsics;
@@ -111,6 +126,13 @@ public static class MeshTexturer
                 ? new Vector3((k.Fx * p.X / p.Z + k.Cx) * s, (k.Fy * p.Y / p.Z + k.Cy) * s, p.Z)
                 : new Vector3(float.NaN);
         }
+        // Triangles smaller than a buffer pixel can miss every pixel centre; their corners still mark the depth there.
+        foreach (var p in projected)
+        {
+            if (float.IsNaN(p.X)) continue;
+            int x = (int)p.X, y = (int)p.Y;
+            if (x >= 0 && y >= 0 && x < w && y < h && p.Z < depth[y * w + x]) depth[y * w + x] = p.Z;
+        }
         for (int t = 0; t < indices.Length; t += 3)
         {
             var p0 = projected[indices[t]];
@@ -121,11 +143,20 @@ public static class MeshTexturer
             int x1 = Math.Min(w - 1, (int)MathF.Ceiling(MathF.Max(p0.X, MathF.Max(p1.X, p2.X))));
             int y0 = Math.Max(0, (int)MathF.Floor(MathF.Min(p0.Y, MathF.Min(p1.Y, p2.Y))));
             int y1 = Math.Min(h - 1, (int)MathF.Ceiling(MathF.Max(p0.Y, MathF.Max(p1.Y, p2.Y))));
-            // Triangles are a few buffer pixels at most: fill their bounding box with the nearest corner depth.
-            float z = MathF.Min(p0.Z, MathF.Min(p1.Z, p2.Z));
+            float area = (p1.X - p0.X) * (p2.Y - p0.Y) - (p2.X - p0.X) * (p1.Y - p0.Y);
+            if (MathF.Abs(area) < 1e-9f) continue;
             for (int y = y0; y <= y1; y++)
             for (int x = x0; x <= x1; x++)
+            {
+                float px = x + 0.5f, py = y + 0.5f;
+                float w0 = ((p1.X - px) * (p2.Y - py) - (p2.X - px) * (p1.Y - py)) / area;
+                float w1 = ((p2.X - px) * (p0.Y - py) - (p0.X - px) * (p2.Y - py)) / area;
+                float w2 = 1 - w0 - w1;
+                // A small allowance keeps pixel centres on shared edges covered by one of the two triangles.
+                if (w0 < -0.01f || w1 < -0.01f || w2 < -0.01f) continue;
+                float z = 1 / (w0 / p0.Z + w1 / p1.Z + w2 / p2.Z);
                 if (z < depth[y * w + x]) depth[y * w + x] = z;
+            }
         }
         return depth;
     }
