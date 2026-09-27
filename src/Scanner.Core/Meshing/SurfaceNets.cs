@@ -13,7 +13,9 @@ public static class SurfaceNets
 {
     private static readonly int[] EdgeBits = [1, 2, 4];
 
-    public static TriangleMesh Extract(TsdfVolume volume)
+    /// <param name="minWeight">Cells with a corner observed fewer times than this are skipped: a surface seen by
+    /// one depth map only is usually a stray match.</param>
+    public static TriangleMesh Extract(TsdfVolume volume, float minWeight = 0)
     {
         var mesh = new TriangleMesh();
         var cells = new Dictionary<(int, int, int), int>();
@@ -27,7 +29,7 @@ public static class SurfaceNets
             int x = bx * TsdfVolume.BlockSize + lx;
             int y = by * TsdfVolume.BlockSize + ly;
             int z = bz * TsdfVolume.BlockSize + lz;
-            if (!TryReadCorners(volume, x, y, z, corners) || !HasSignChange(corners)) continue;
+            if (!TryReadCorners(volume, x, y, z, corners, minWeight) || !HasSignChange(corners)) continue;
 
             cells[(x, y, z)] = mesh.Positions.Count;
             mesh.Positions.Add(CellVertex(volume.VoxelSize, x, y, z, corners));
@@ -61,10 +63,11 @@ public static class SurfaceNets
         else mesh.AddQuad(i0, i3, i2, i1);
     }
 
-    private static bool TryReadCorners(TsdfVolume volume, int x, int y, int z, float[] corners)
+    private static bool TryReadCorners(TsdfVolume volume, int x, int y, int z, float[] corners, float minWeight)
     {
         for (int i = 0; i < 8; i++)
-            if (!volume.TryGet(x + (i & 1), y + ((i >> 1) & 1), z + ((i >> 2) & 1), out corners[i], out _))
+            if (!volume.TryGet(x + (i & 1), y + ((i >> 1) & 1), z + ((i >> 2) & 1), out corners[i], out float weight)
+                || weight < minWeight)
                 return false;
         return true;
     }

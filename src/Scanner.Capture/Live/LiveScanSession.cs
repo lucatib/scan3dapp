@@ -219,8 +219,12 @@ public sealed class LiveScanSession
     /// <summary>Stops the scan, isolates the piece around the target, writes points and manifest.</summary>
     /// <param name="enrich">Given the accumulated ARCore points, returns the points to isolate and write instead —
     /// the phone merges its photogrammetry points in here, so that they are cut from the table together.</param>
+    /// <param name="reconstructedPiece">The piece already reconstructed from the photos and cut from the table at
+    /// <paramref name="reconstructedPlane"/>. When it has enough points it is the result, and ARCore depth only serves as the
+    /// fallback: the depth points then located the piece and nothing more.</param>
     public LiveScanResult Complete(Func<Vector3[], Vector3[]>? enrich = null,
-        IReadOnlyList<Vector3>? photoPoints = null)
+        IReadOnlyList<Vector3>? photoPoints = null, IReadOnlyList<Vector3>? reconstructedPiece = null,
+        FittedSupportPlane? reconstructedPlane = null)
     {
         Vector3? target;
         float? supportPlaneHeight;
@@ -251,6 +255,11 @@ public sealed class LiveScanSession
                 : all;
             bool isolated = target is not null && piece.Length >= Options.MinIsolatedPoints;
             int photoPointCount = 0;
+            if (reconstructedPiece is { } reconstructed && reconstructed.Count >= Options.MinIsolatedPoints)
+            {
+                _writer.Complete(target, supportPlaneHeight, reconstructed, reconstructedPlane ?? plane, reconstructed.Count);
+                return new LiveScanResult(all, reconstructed.ToArray(), true);
+            }
             if (target is { } photoTarget && photoPoints is { Count: > 0 })
             {
                 // Fit the photo surface independently: the depth noise margin must not erase photo detail.

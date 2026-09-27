@@ -57,4 +57,19 @@ public sealed record PhotoView(GrayImage Image, CameraIntrinsics Intrinsics, Mat
         return new PhotoView(small, new CameraIntrinsics(small.Width, small.Height, k.Fx / factor, k.Fy / factor,
             (k.Cx + 0.5f) / factor - 0.5f, (k.Cy + 0.5f) / factor - 0.5f), CameraToWorld);
     }
+
+    /// <summary>The <paramref name="width"/>x<paramref name="height"/> window at (<paramref name="x"/>, <paramref name="y"/>),
+    /// with the principal point moved so that it is still the same camera.</summary>
+    public PhotoView Crop(int x, int y, int width, int height)
+    {
+        if (x < 0 || y < 0 || width <= 0 || height <= 0 || x + width > Image.Width || y + height > Image.Height)
+            throw new ArgumentOutOfRangeException(nameof(x), "The crop must lie inside the image.");
+        if (x == 0 && y == 0 && width == Image.Width && height == Image.Height) return this;
+        var pixels = new byte[width * height];
+        for (int row = 0; row < height; row++)
+            Array.Copy(Image.Pixels, (y + row) * Image.Width + x, pixels, row * width, width);
+        var k = Intrinsics;
+        return new PhotoView(new GrayImage(width, height, pixels),
+            new CameraIntrinsics(width, height, k.Fx, k.Fy, k.Cx - x, k.Cy - y), CameraToWorld);
+    }
 }

@@ -33,8 +33,9 @@ internal static class CameraImageReader
 {
     private const int JpegQuality = 88;
 
-    /// <summary>Target width of the preview copies: 1920x1080 photos become 480x270.</summary>
-    private const int PreviewWidth = 480;
+    /// <summary>Target width of the reconstruction copies: 1920x1080 photos become 960x540. Stereo only matches the
+    /// window around the piece, so the resolution costs little time, and a small piece needs it.</summary>
+    private const int PreviewWidth = 960;
 
     /// <summary>Image-normalized (0,0) and (1,0): the ends of the image's own x axis. GL thread only, and read
     /// by ARCore rather than written, so one shared array is safe.</summary>

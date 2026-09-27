@@ -3,6 +3,7 @@ using Scanner.App.Services;
 using Scanner.Capture.Live;
 using Scanner.Capture.Sessions;
 using Scanner.Core.Photogrammetry;
+using Scanner.Core.Texturing;
 
 namespace Scanner.App.Pages;
 
@@ -177,26 +178,47 @@ public sealed class ScanPage : ContentPage
         try
         {
             await scan.WaitForPhotoCaptureAsync();
-            var result = await Task.Run(() =>
+            string directory = _store.DirectoryOf(sessionId);
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+            var (result, textured) = await Task.Run(() =>
             {
+                // The ARCore points only locate the piece: the geometry is the photos', fused in voxels.
                 var photos = scan.PreviewPhotos();
-                System.Numerics.Vector3[] photoPoints = [];
+                VoxelReconstruction? reconstruction = null;
                 if (scan.Target is { } target && photos.Length >= 3)
                 {
                     try
                     {
-                        photoPoints = PhotoReconstruction.DensePoints(photos, target,
-                            new ReconstructionOptions(ReferenceViews: 8,
-                                Stereo: new StereoOptions(DepthSamples: 64, MinScore: .65f))).ToArray();
+                        reconstruction = PhotoVoxelReconstruction.Reconstruct(photos, target, scan.SnapshotPoints(),
+                            new VoxelReconstructionOptions(ReferenceViews: 8, MaxDepthSamples: 64, MaxHalfWidth: 0.08f));
                     }
                     catch (Exception ex)
                     {
-                        System.Diagnostics.Debug.WriteLine($"Photo reconstruction failed: {ex}");
+                        Console.WriteLine($"Scan3D: Photo reconstruction failed: {ex}");
                     }
                 }
-                return scan.Complete(photoPoints: photoPoints);
+                var completed = scan.Complete(reconstructedPiece: reconstruction?.Mesh.Positions,
+                    reconstructedPlane: reconstruction?.Plane);
+                bool wroteModel = false;
+                if (reconstruction is { Mesh.TriangleCount: > 0 } && completed.PiecePoints.Length == reconstruction.Mesh.Positions.Count)
+                {
+                    try
+                    {
+                        var cameras = ScanSessionReader.ReadPhotos(directory).Select(p => TextureCamera.FromPhoto(p.Photo)).ToList();
+                        TexturedModelFile.Write(directory, MeshTexturer.Texture(reconstruction.Mesh, cameras));
+                        wroteModel = true;
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"Scan3D: Texturing failed: {ex}");
+                    }
+                }
+                Console.WriteLine($"Scan3D finish: {clock.Elapsed.TotalSeconds:F1} s, maps {reconstruction?.DepthMaps}, "
+                    + $"triangles {reconstruction?.Mesh.TriangleCount}, piece {completed.PiecePoints.Length}, model {wroteModel}");
+                return (completed, wroteModel);
             });
-            _status.Text = result.Isolated ? "Piece isolated from the table." : "Could not isolate the piece; showing all points.";
+            _status.Text = textured ? $"Photo model ready in {clock.Elapsed.TotalSeconds:F0} s."
+                : result.Isolated ? "Piece isolated from the table." : "Could not isolate the piece; showing all points.";
             if (_visible) await Shell.Current.GoToAsync($"preview?id={sessionId}");
         }
         catch (Exception ex)

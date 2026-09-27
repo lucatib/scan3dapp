@@ -1,7 +1,9 @@
 using System.Numerics;
 using Android.Content;
 using Android.Opengl;
+using Android.Graphics;
 using Android.Views;
+using Scanner.App.Controls;
 
 namespace Scanner.App.Droid.Viewer;
 
@@ -26,6 +28,30 @@ public sealed class PointCloudGlView : GLSurfaceView
     {
         QueueEvent(() => _renderer.SetPoints(points));
         RequestRender();
+    }
+
+    /// <summary>Decodes the photos the model uses off the UI thread, then hands everything to the GL thread.</summary>
+    public void SetModel(TexturedScene? scene)
+    {
+        if (scene is null)
+        {
+            QueueEvent(() => _renderer.SetModel(null, []));
+            RequestRender();
+            return;
+        }
+        Task.Run(() =>
+        {
+            var pictures = new Dictionary<int, Bitmap>();
+            // Half size is 540x960: sharp enough for the patches, and GL-friendly in memory.
+            var options = new BitmapFactory.Options { InSampleSize = 2 };
+            foreach (int photo in scene.Model.TrianglePhotos.Distinct().Where(p => p > 0))
+            {
+                string path = System.IO.Path.Combine(scene.Directory, "photos", $"{photo:D6}.jpg");
+                if (BitmapFactory.DecodeFile(path, options) is { } picture) pictures[photo] = picture;
+            }
+            QueueEvent(() => _renderer.SetModel(scene.Model, pictures));
+            RequestRender();
+        });
     }
 
     public override bool OnTouchEvent(MotionEvent? e)

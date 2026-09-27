@@ -11,6 +11,7 @@ public sealed class PointCloudViewHandler : ViewHandler<PointCloudView, PointClo
         new PropertyMapper<PointCloudView, PointCloudViewHandler>(ViewMapper)
         {
             [nameof(PointCloudView.Points)] = (handler, view) => handler.PlatformView.SetPoints(view.Points),
+            [nameof(PointCloudView.Model)] = (handler, view) => handler.PlatformView.SetModel(view.Model),
         };
 
     public static readonly CommandMapper<PointCloudView, PointCloudViewHandler> CommandMapper =

@@ -7,22 +7,47 @@ public static class DepthMapFusion
 {
     /// <summary>
     /// World points from every depth map, keeping only those that at least <paramref name="minAgreeing"/> other
-    /// depth maps confirm: projected into another view, the point's depth must be within
-    /// <paramref name="relativeTolerance"/> of what that view measured at that pixel. A wrong match is rarely wrong
-    /// the same way in two other views, so this removes most of them.
+    /// depth maps confirm (see <see cref="Filter"/>).
     /// </summary>
     public static List<Vector3> Fuse(IReadOnlyList<(PhotoView View, DepthMap Map)> maps, int minAgreeing = 2,
         float relativeTolerance = 0.01f)
     {
-        var perMap = new List<Vector3>[maps.Count];
-        Parallel.For(0, maps.Count, i =>
+        var filtered = Filter(maps, minAgreeing, relativeTolerance);
+        var points = new List<Vector3>();
+        for (int i = 0; i < maps.Count; i++)
         {
-            var (view, map) = maps[i];
-            var kept = new List<Vector3>();
+            var (view, _) = maps[i];
+            var map = filtered[i];
             for (int v = 0; v < map.Height; v++)
             for (int u = 0; u < map.Width; u++)
             {
                 float d = map.Depth[v * map.Width + u];
+                if (d > 0) points.Add(Pinhole.BackProject(view, u, v, d));
+            }
+        }
+        return points;
+    }
+
+    /// <summary>
+    /// Copies of the depth maps in which only the pixels that at least <paramref name="minAgreeing"/> other depth
+    /// maps confirm keep their depth: projected into another view, the point's depth must be within
+    /// <paramref name="relativeTolerance"/> of what that view measured at that pixel. A wrong match is rarely wrong
+    /// the same way in two other views, so this removes most of them.
+    /// </summary>
+    public static DepthMap[] Filter(IReadOnlyList<(PhotoView View, DepthMap Map)> maps, int minAgreeing = 2,
+        float relativeTolerance = 0.01f)
+    {
+        var result = new DepthMap[maps.Count];
+        Parallel.For(0, maps.Count, i =>
+        {
+            var (view, map) = maps[i];
+            var depth = new float[map.Depth.Length];
+            var score = new float[map.Score.Length];
+            for (int v = 0; v < map.Height; v++)
+            for (int u = 0; u < map.Width; u++)
+            {
+                int index = v * map.Width + u;
+                float d = map.Depth[index];
                 if (d <= 0) continue;
                 var world = Pinhole.BackProject(view, u, v, d);
                 int agreeing = 0;
@@ -37,10 +62,12 @@ public static class DepthMapFusion
                     float measured = otherMap.Depth[py * otherMap.Width + px];
                     if (measured > 0 && MathF.Abs(camera.Z - measured) <= relativeTolerance * measured) agreeing++;
                 }
-                if (agreeing >= minAgreeing) kept.Add(world);
+                if (agreeing < minAgreeing) continue;
+                depth[index] = d;
+                score[index] = map.Score[index];
             }
-            perMap[i] = kept;
+            result[i] = new DepthMap(map.Width, map.Height, depth, score);
         });
-        return perMap.SelectMany(p => p).ToList();
+        return result;
     }
 }

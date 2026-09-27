@@ -61,16 +61,20 @@ public sealed class PreviewPage : ContentPage
         _info.Text = "Loading 3D scan…";
         try
         {
-            var (manifest, points) = await Task.Run(() => (
+            var (manifest, points, model) = await Task.Run(() => (
                 ScanSessionReader.ReadManifest(directory),
-                ScanSessionReader.ReadPoints(directory)));
+                ScanSessionReader.ReadPoints(directory),
+                TexturedModelFile.Exists(directory) ? TexturedModelFile.Read(directory) : null));
             _view.Points = points;
+            _view.Model = model is null ? null : new TexturedScene(model, directory);
             _loadedId = id;
             _info.Text = $"{points.Length:N0} points · {manifest.FrameCount} depth frames"
                          + $" · {manifest.PhotoCount} photos · {manifest.CreatedUtc.LocalDateTime:g}"
-                         + (manifest.PhotoPointCount > 0
-                             ? $"\nPhoto geometry preferred ({manifest.PhotoPointCount:N0} accepted points); depth fills gaps."
-                             : "\nDepth result only — no usable photo geometry.")
+                         + (model is not null
+                             ? $"\nPhoto model: {model.TriangleCount:N0} triangles textured with photo patches."
+                             : manifest.PhotoPointCount > 0
+                                 ? $"\nPhoto geometry ({manifest.PhotoPointCount:N0} points)."
+                                 : "\nDepth result only — no usable photo geometry.")
                          + "\nDrag to rotate, pinch to zoom.";
         }
         catch (Exception ex)
