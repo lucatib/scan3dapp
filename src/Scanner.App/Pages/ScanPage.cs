@@ -217,15 +217,21 @@ public sealed class ScanPage : ContentPage
                         var log = new LogcatWriter();
                         if (!paired)
                             photos = PoseRefiner.Refine(photos, target, log: log).Views;
-                        else if (live!.Poses.Version == 0 || all.Length - live.Poses.RefinedCount >= RefineEvery)
+                        else
                         {
-                            live.Poses.Refine(target, log);
-                            all = live.Poses.Snapshot().Photos;
+                            if (live!.Poses.Version == 0 || all.Length - live.Poses.RefinedCount >= RefineEvery)
+                            {
+                                live.Poses.Refine(target, log);
+                                all = live.Poses.Snapshot().Photos;
+                            }
+                            // Exactly the photos the refinement adjusted: the others only carry a neighbour's correction.
+                            if (live.Poses.RefinedPhotos is { Length: >= 3 } refined) used = [.. refined];
                             photos = used.Select(i => all[i]).ToArray();
                         }
                         Console.WriteLine($"Scan3D: refined {photos.Length} of {all.Length} photos at {clock.Elapsed.TotalSeconds:F1} s");
                         reconstruction = PhotoVoxelReconstruction.Reconstruct(photos, target, scan.SnapshotPoints(),
-                            new VoxelReconstructionOptions(ReferenceViews: 8, MaxDepthSamples: 64, MaxHalfWidth: 0.12f, MinWeight: 1),
+                            new VoxelReconstructionOptions(ReferenceViews: 8, MaxDepthSamples: 64, MaxHalfWidth: 0.12f, MinWeight: 1,
+                                MaxCropPixels: 384),
                             log, live?.PieceBounds);
                         Console.WriteLine($"Scan3D: reconstructed at {clock.Elapsed.TotalSeconds:F1} s");
                     }

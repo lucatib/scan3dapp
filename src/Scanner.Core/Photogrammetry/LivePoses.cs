@@ -31,6 +31,13 @@ public sealed class LivePoses(PoseRefinementOptions? options = null, int maxRefi
     /// <summary>Changes whenever a refinement changes poses.</summary>
     public int Version { get; private set; }
 
+    /// <summary>The photos the last trusted refinement adjusted, in capture order; empty before one. Only these have
+    /// bundle-adjusted poses: use them, not a fresh spread over all photos, where precision matters.</summary>
+    public int[] RefinedPhotos
+    {
+        get { lock (_gate) return [.. _refinedOrder]; }
+    }
+
     /// <summary>Adds the next photo in capture order, with its ARCore pose.</summary>
     public int Add(PhotoView photo)
     {

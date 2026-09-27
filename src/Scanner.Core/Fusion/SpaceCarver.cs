@@ -39,7 +39,7 @@ public static class SpaceCarver
             for (int i = 0; i < nx; i++)
             {
                 var p = volume.VoxelToWorld(x0 + i, y0 + j, z0 + k);
-                solid[(k * ny + j) * nx + i] = p.Y > table.HeightAt(p.X, p.Z) + table.Margin && IsSolid(maps, p, s) ? -1 : 1;
+                solid[(k * ny + j) * nx + i] = p.Y > table.HeightAt(p.X, p.Z) + table.Margin && IsSolid(maps, p, s, table) ? -1 : 1;
             }
         });
 
@@ -80,8 +80,11 @@ public static class SpaceCarver
         }
     }
 
-    /// <summary>No depth map sees through <paramref name="p"/>, and at least one sees it behind its surface.</summary>
-    private static bool IsSolid(IReadOnlyList<(PhotoView View, float[] Depth)> maps, Vector3 p, float voxelSize)
+    /// <summary>No depth map sees through <paramref name="p"/>, and enough see it behind the piece's surface. Only a
+    /// surface above the table counts: floor hides the voxels just under it too, and counting that made a slab of floor
+    /// solid wherever the tiles stood a few millimetres above the fitted plane.</summary>
+    private static bool IsSolid(IReadOnlyList<(PhotoView View, float[] Depth)> maps, Vector3 p, float voxelSize,
+        FittedSupportPlane table)
     {
         int hidden = 0;
         foreach (var (view, depth) in maps)
@@ -100,7 +103,9 @@ public static class SpaceCarver
                 float d = depth[(cv + dv) * k.Width + cu + du];
                 if (d <= 0) continue;
                 if (d > camera.Z + tolerance) return false; // this ray passes the voxel and lands beyond it
-                if (d < camera.Z - tolerance) behind = true;
+                if (d >= camera.Z - tolerance || behind) continue;
+                var surface = Pinhole.BackProject(view, cu + du, cv + dv, d);
+                behind = surface.Y > table.HeightAt(surface.X, surface.Z) + table.Margin + 2 * voxelSize;
             }
             if (behind) hidden++;
         }

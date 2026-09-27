@@ -21,11 +21,14 @@ namespace Scanner.Core.Photogrammetry;
 /// <param name="Carve">Complete the surface into a solid from where the photos see through (<see cref="SpaceCarver"/>).</param>
 /// <param name="PieceMargin">Margin around a known piece extent, metres: the table ring beside the walls must be in the
 /// box for the carving to find them.</param>
+/// <param name="MaxCropPixels">Longest side of a reference crop; a larger one (a photo taken close to the piece) is averaged
+/// down. That bounds the cost of a depth map, and keeps the depth steps near a pixel of disparity: close up, the box spans
+/// a depth range the step cap could only cover coarsely, and coarse steps matched wrongly.</param>
 /// <param name="Stereo">Matching settings; <see cref="StereoOptions.DepthSamples"/> is replaced per depth map.</param>
 public sealed record VoxelReconstructionOptions(int ReferenceViews = 12, int Neighbours = 4, float VoxelSize = 0.003f,
     float TruncationVoxels = 4, float BoxPadding = 0.03f, int MinDepthSamples = 24, int MaxDepthSamples = 96,
     float MinWeight = 2, float MaxHalfWidth = 0.10f, bool Carve = true, float PieceMargin = 0.025f,
-    StereoOptions? Stereo = null);
+    int MaxCropPixels = 256, StereoOptions? Stereo = null);
 
 /// <summary>The reconstructed piece: a surface mesh cut from the table (<paramref name="Surface"/> is before the cut), the table plane it was cut at,
 /// and the world box that was searched.</summary>
@@ -65,12 +68,12 @@ public static class PhotoVoxelReconstruction
             var (x0, y0, width, height, near, far) = window;
             var neighbours = ViewSelection.Neighbours(views, reference, center, options.Neighbours);
             if (neighbours.Count == 0) continue;
-            var crop = view.Crop(x0, y0, width, height);
+            var crop = FitCrop(view.Crop(x0, y0, width, height), options);
             var others = neighbours.Select(i => views[i]).ToList();
             int samples = Samples(crop, others, near, far, options);
             var stereo = (options.Stereo ?? new StereoOptions()) with { DepthSamples = samples };
             var map = PlaneSweepStereo.Compute(crop, others, near, far, stereo);
-            log?.WriteLine($"  photo {reference}: {width}x{height} px, {near:F3}-{far:F3} m, {samples} depths, {map.Depth.Count(d => d > 0)} matched, {clock.ElapsedMilliseconds} ms");
+            log?.WriteLine($"  photo {reference}: {crop.Image.Width}x{crop.Image.Height} px, {near:F3}-{far:F3} m, {samples} depths, {map.Depth.Count(d => d > 0)} matched, {clock.ElapsedMilliseconds} ms");
             maps.Add((crop, map));
         }
         if (maps.Count < 3) return null;
@@ -206,6 +209,13 @@ public static class PhotoVoxelReconstruction
         int x1 = Math.Min(k.Width, (int)MathF.Ceiling(u1) + 1), y1 = Math.Min(k.Height, (int)MathF.Ceiling(v1) + 1);
         if (x1 - x0 < 24 || y1 - y0 < 24) return null;
         return (x0, y0, x1 - x0, y1 - y0, near, far);
+    }
+
+    /// <summary>The crop averaged down so that its longest side is at most <see cref="VoxelReconstructionOptions.MaxCropPixels"/>.</summary>
+    internal static PhotoView FitCrop(PhotoView crop, VoxelReconstructionOptions options)
+    {
+        int longest = Math.Max(crop.Image.Width, crop.Image.Height);
+        return longest <= options.MaxCropPixels ? crop : crop.Downscale((longest + options.MaxCropPixels - 1) / options.MaxCropPixels);
     }
 
     /// <summary>Hypotheses about one pixel of disparity apart along the longest baseline, within the option bounds.</summary>

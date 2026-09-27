@@ -114,7 +114,7 @@ public sealed class LiveReconstruction
         if (neighbours.Count == 0) return false;
 
         var (x0, y0, width, height, near, far) = window;
-        var crop = view.Crop(x0, y0, width, height);
+        var crop = PhotoVoxelReconstruction.FitCrop(view.Crop(x0, y0, width, height), _options);
         var others = neighbours.Select(i => photos[i]).ToList();
         int samples = PhotoVoxelReconstruction.Samples(crop, others, near, far, _options);
         var stereo = (_options.Stereo ?? new StereoOptions()) with { DepthSamples = samples };

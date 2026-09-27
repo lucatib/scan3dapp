@@ -78,7 +78,7 @@ public sealed class LivePhotogrammetry
                 if (_stopped || state() is not { Recording: true, Target: { } target } current) return;
                 var (photos, version) = Poses.Snapshot();
                 if (_reconstruction.Add(photos, version, target, current.Guide) && Surface is { Positions.Count: > 0 } surface)
-                    Volatile.Write(ref _pieceBounds, [surface.Positions.Aggregate(Vector3.Min), surface.Positions.Aggregate(Vector3.Max)]);
+                    Volatile.Write(ref _pieceBounds, Bounds(surface.Positions));
             }
             catch (Exception ex)
             {
@@ -90,6 +90,21 @@ public sealed class LivePhotogrammetry
             }
         });
     }
+
+    /// <summary>The 1st to 99th percentile per axis: a few stray vertices must not inflate the box Finish crops to.</summary>
+    private static Vector3[] Bounds(IReadOnlyList<Vector3> points)
+    {
+        float At(Func<Vector3, float> axis, float q)
+        {
+            var values = points.Select(axis).Order().ToArray();
+            return values[(int)((values.Length - 1) * q)];
+        }
+        return [new(At(p => p.X, .01f), At(p => p.Y, .01f), At(p => p.Z, .01f)),
+            new(At(p => p.X, .99f), At(p => p.Y, .99f), At(p => p.Z, .99f))];
+    }
+
+    /// <summary>Waits for both workers; for replaying a scan in tests, where every photo should be processed.</summary>
+    public void WaitIdleForTest() => Task.WaitAll(Volatile.Read(ref _reconstructTask), Volatile.Read(ref _refineTask));
 
     /// <summary>Stops accepting photos and waits for both workers, so that the finished scan has the CPU.</summary>
     public async Task StopAsync()
