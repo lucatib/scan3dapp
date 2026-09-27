@@ -193,7 +193,7 @@ public sealed class ScanPage : ContentPage
                         var log = new LogcatWriter();
                         photos = PoseRefiner.Refine(photos, target, log: log).Views;
                         reconstruction = PhotoVoxelReconstruction.Reconstruct(photos, target, scan.SnapshotPoints(),
-                            new VoxelReconstructionOptions(ReferenceViews: 8, MaxDepthSamples: 64, MaxHalfWidth: 0.08f, MinWeight: 1),
+                            new VoxelReconstructionOptions(ReferenceViews: 8, MaxDepthSamples: 64, MaxHalfWidth: 0.12f, MinWeight: 1),
                             log);
                     }
                     catch (Exception ex)

@@ -5,7 +5,10 @@ using Google.AR.Core;
 using Javax.Microedition.Khronos.Opengles;
 using Scanner.App.Controls;
 using Scanner.App.Droid.Rendering;
+using System.Collections.Concurrent;
+using Scanner.Capture;
 using Scanner.Capture.Live;
+using Scanner.Core.Photogrammetry;
 using ArFrame = Google.AR.Core.Frame;
 using ArPlane = Google.AR.Core.Plane;
 using EGLConfig = Javax.Microedition.Khronos.Egl.EGLConfig;
@@ -39,6 +42,8 @@ internal sealed class ArScanRenderer : Java.Lang.Object, GLSurfaceView.IRenderer
     private readonly Func<int> _readDisplayRotation;
     private readonly CameraBackgroundRenderer _background = new();
     private readonly PointCloudRenderer _points = new();
+    private readonly LiveMeshRenderer _liveMesh = new();
+    private readonly ConcurrentQueue<PhotoView> _livePhotos = new();
     private readonly DepthFrameReader _depth = new();
     private readonly Stopwatch _clock = Stopwatch.StartNew();
     private readonly float[] _view = new float[16];
@@ -57,6 +62,9 @@ internal sealed class ArScanRenderer : Java.Lang.Object, GLSurfaceView.IRenderer
     private bool _waitingForDepth; // GL thread only
     private int _integrating;
     private int _capturingPhoto;
+    private int _reconstructing;
+    private volatile LiveReconstruction? _live;
+    private object? _uploadedSurface; // GL thread only
     private TimeSpan _lastUpload;
     private TimeSpan _lastStatus;
 
@@ -75,13 +83,23 @@ internal sealed class ArScanRenderer : Java.Lang.Object, GLSurfaceView.IRenderer
         _geometryChanged = true; // a new session needs SetDisplayGeometry before its first Update
     }
 
-    public void SetScan(LiveScanSession? scan) => _scan = scan;
+    public void SetScan(LiveScanSession? scan)
+    {
+        _scan = scan;
+        _livePhotos.Clear();
+        _live = scan is null ? null : new LiveReconstruction(LiveOptions);
+    }
+
+    /// <summary>Settings of the live photo reconstruction; the finished scan uses the same box.</summary>
+    public static readonly VoxelReconstructionOptions LiveOptions = new(MaxDepthSamples: 64, MaxHalfWidth: 0.12f, MinWeight: 1);
 
     public void OnSurfaceCreated(IGL10? gl, EGLConfig? config)
     {
         GLES30.GlClearColor(0f, 0f, 0f, 1f);
         _background.Initialize();
         _points.Initialize();
+        _liveMesh.Initialize();
+        _uploadedSurface = null;
         _uploadedScan = null;
         _lastUpload = TimeSpan.Zero;
     }
@@ -141,7 +159,15 @@ internal sealed class ArScanRenderer : Java.Lang.Object, GLSurfaceView.IRenderer
                 camera.GetViewMatrix(_view, 0);
                 camera.GetProjectionMatrix(_projection, 0, 0.05f, 20f);
                 Android.Opengl.Matrix.MultiplyMM(_viewProjection, 0, _projection, 0, _view, 0);
-                _points.Draw(_viewProjection, PointSizePixels);
+                // Once the photos show the piece, its surface replaces the ARCore points: those only locate it.
+                var surface = _live?.Surface;
+                if (!ReferenceEquals(surface, _uploadedSurface))
+                {
+                    _liveMesh.Upload(surface);
+                    _uploadedSurface = surface;
+                }
+                if (_liveMesh.HasMesh) _liveMesh.Draw(_viewProjection);
+                else _points.Draw(_viewProjection, PointSizePixels);
             }
             // Only recording reads depth, so the "waiting for depth" state cannot outlive it.
             if (!isTracking || state != LiveScanState.Recording) ResetDepthWait();
@@ -159,6 +185,36 @@ internal sealed class ArScanRenderer : Java.Lang.Object, GLSurfaceView.IRenderer
                 scan?.PointCount ?? 0, scan?.FrameCount ?? 0, scan?.PhotoCount ?? 0, message));
             _message = null;
         }
+    }
+
+    /// <summary>
+    /// Hands a new photo to the live reconstruction. One worker at a time: photos that arrive while it is busy are
+    /// only remembered as stereo neighbours, and the worker then matches the newest one. Failures are reported and
+    /// swallowed, like photo failures: the live surface is a preview, the recording must go on.
+    /// </summary>
+    private void OfferLive(LiveScanSession scan, PhotoView photo)
+    {
+        var live = _live;
+        if (live is null) return;
+        _livePhotos.Enqueue(photo);
+        if (Interlocked.CompareExchange(ref _reconstructing, 1, 0) != 0) return;
+        Task.Run(() =>
+        {
+            try
+            {
+                while (_livePhotos.TryDequeue(out var queued)) live.Remember(queued);
+                if (scan.State == LiveScanState.Recording && scan.Target is { } target && ReferenceEquals(live, _live))
+                    live.Add(target, scan.SnapshotPoints());
+            }
+            catch (Exception ex)
+            {
+                _message = $"Live reconstruction failed: {ex.Message}";
+            }
+            finally
+            {
+                Volatile.Write(ref _reconstructing, 0);
+            }
+        });
     }
 
     // The target is the depth/plane hit under the screen centre (the crosshair); the support plane is the highest
@@ -269,8 +325,10 @@ internal sealed class ArScanRenderer : Java.Lang.Object, GLSurfaceView.IRenderer
         {
             try
             {
-                if (!scan.AddPhoto(CameraImageReader.EncodeJpeg(image), image.Metadata, CameraImageReader.Preview(image)))
+                var preview = CameraImageReader.Preview(image);
+                if (!scan.AddPhoto(CameraImageReader.EncodeJpeg(image), image.Metadata, preview))
                     scan.ReleasePhotoReservation();
+                else OfferLive(scan, preview);
             }
             catch (Exception ex)
             {

@@ -38,36 +38,41 @@ public static class DepthMapFusion
         float relativeTolerance = 0.01f)
     {
         var result = new DepthMap[maps.Count];
-        Parallel.For(0, maps.Count, i =>
-        {
-            var (view, map) = maps[i];
-            var depth = new float[map.Depth.Length];
-            var score = new float[map.Score.Length];
-            for (int v = 0; v < map.Height; v++)
-            for (int u = 0; u < map.Width; u++)
-            {
-                int index = v * map.Width + u;
-                float d = map.Depth[index];
-                if (d <= 0) continue;
-                var world = Pinhole.BackProject(view, u, v, d);
-                int agreeing = 0;
-                for (int j = 0; j < maps.Count && agreeing < minAgreeing; j++)
-                {
-                    if (j == i) continue;
-                    var (other, otherMap) = maps[j];
-                    var camera = Pinhole.ToCamera(other.CameraToWorld, world);
-                    if (!Pinhole.Project(other.Intrinsics, camera, out float x, out float y)) continue;
-                    int px = (int)MathF.Round(x), py = (int)MathF.Round(y);
-                    if (px < 0 || py < 0 || px >= otherMap.Width || py >= otherMap.Height) continue;
-                    float measured = otherMap.Depth[py * otherMap.Width + px];
-                    if (measured > 0 && MathF.Abs(camera.Z - measured) <= relativeTolerance * measured) agreeing++;
-                }
-                if (agreeing < minAgreeing) continue;
-                depth[index] = d;
-                score[index] = map.Score[index];
-            }
-            result[i] = new DepthMap(map.Width, map.Height, depth, score);
-        });
+        Parallel.For(0, maps.Count, i => result[i] = Confirmed(maps, i, minAgreeing, relativeTolerance));
         return result;
+    }
+
+    /// <summary>A copy of depth map <paramref name="index"/> keeping only the pixels the other maps confirm (see
+    /// <see cref="Filter"/>).</summary>
+    public static DepthMap Confirmed(IReadOnlyList<(PhotoView View, DepthMap Map)> maps, int index, int minAgreeing = 2,
+        float relativeTolerance = 0.01f)
+    {
+        var (view, map) = maps[index];
+        var depth = new float[map.Depth.Length];
+        var score = new float[map.Score.Length];
+        for (int v = 0; v < map.Height; v++)
+        for (int u = 0; u < map.Width; u++)
+        {
+            int pixel = v * map.Width + u;
+            float d = map.Depth[pixel];
+            if (d <= 0) continue;
+            var world = Pinhole.BackProject(view, u, v, d);
+            int agreeing = 0;
+            for (int j = 0; j < maps.Count && agreeing < minAgreeing; j++)
+            {
+                if (j == index) continue;
+                var (other, otherMap) = maps[j];
+                var camera = Pinhole.ToCamera(other.CameraToWorld, world);
+                if (!Pinhole.Project(other.Intrinsics, camera, out float x, out float y)) continue;
+                int px = (int)MathF.Round(x), py = (int)MathF.Round(y);
+                if (px < 0 || py < 0 || px >= otherMap.Width || py >= otherMap.Height) continue;
+                float measured = otherMap.Depth[py * otherMap.Width + px];
+                if (measured > 0 && MathF.Abs(camera.Z - measured) <= relativeTolerance * measured) agreeing++;
+            }
+            if (agreeing < minAgreeing) continue;
+            depth[pixel] = d;
+            score[pixel] = map.Score[pixel];
+        }
+        return new DepthMap(map.Width, map.Height, depth, score);
     }
 }

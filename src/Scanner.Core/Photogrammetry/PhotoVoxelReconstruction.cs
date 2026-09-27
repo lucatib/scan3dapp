@@ -145,7 +145,7 @@ public static class PhotoVoxelReconstruction
 
     /// <summary>The pixel window of <paramref name="view"/> the box covers, and the depth range it spans; null when the
     /// box is behind the camera, partly or wholly, or covers too few pixels to match.</summary>
-    private static (int X, int Y, int Width, int Height, float Near, float Far)? Window(PhotoView view, Vector3 min, Vector3 max)
+    internal static (int X, int Y, int Width, int Height, float Near, float Far)? Window(PhotoView view, Vector3 min, Vector3 max)
     {
         var k = view.Intrinsics;
         float u0 = float.MaxValue, v0 = float.MaxValue, u1 = float.MinValue, v1 = float.MinValue;
@@ -168,7 +168,7 @@ public static class PhotoVoxelReconstruction
     }
 
     /// <summary>Hypotheses about one pixel of disparity apart along the longest baseline, within the option bounds.</summary>
-    private static int Samples(PhotoView reference, IReadOnlyList<PhotoView> neighbours, float near, float far,
+    internal static int Samples(PhotoView reference, IReadOnlyList<PhotoView> neighbours, float near, float far,
         VoxelReconstructionOptions options)
     {
         float baseline = neighbours.Max(n => Vector3.Distance(n.CameraToWorld.Translation, reference.CameraToWorld.Translation));
@@ -176,7 +176,7 @@ public static class PhotoVoxelReconstruction
         return Math.Clamp((int)MathF.Ceiling(disparity), options.MinDepthSamples, options.MaxDepthSamples);
     }
 
-    private static bool Inside(Vector3 p, Vector3 min, Vector3 max) =>
+    internal static bool Inside(Vector3 p, Vector3 min, Vector3 max) =>
         p.X >= min.X && p.Y >= min.Y && p.Z >= min.Z && p.X <= max.X && p.Y <= max.Y && p.Z <= max.Z;
 
     private static float Percentile(Vector3[] points, Func<Vector3, float> axis, float q)
