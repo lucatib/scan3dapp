@@ -27,6 +27,8 @@ public sealed class LiveReconstruction
     private readonly List<bool> _fused = [];
     private readonly TsdfVolume _volume;
     private TriangleMesh? _surface;
+    private Vector3 _boxMin = new(float.PositiveInfinity), _boxMax = new(float.NegativeInfinity);
+    private FittedSupportPlane? _table; // locked once the photos measured it
 
     public LiveReconstruction(VoxelReconstructionOptions? options = null)
     {
@@ -55,8 +57,13 @@ public sealed class LiveReconstruction
         var view = _photos[reference];
 
         var guidePlane = SupportPlaneFinder.Fit(guide);
-        var (boxMin, boxMax) = PhotoVoxelReconstruction.ObjectBox(guide, target, guidePlane, _options.BoxPadding,
+        // The box only grows: ARCore's cluster wanders as points come in, and a shrinking box would cut away
+        // surface the user has already seen appear.
+        var (newMin, newMax) = PhotoVoxelReconstruction.ObjectBox(guide, target, guidePlane, _options.BoxPadding,
             _options.MaxHalfWidth);
+        _boxMin = Vector3.Min(_boxMin, newMin);
+        _boxMax = Vector3.Max(_boxMax, newMax);
+        var (boxMin, boxMax) = (_boxMin, _boxMax);
         var center = (boxMin + boxMax) / 2;
         if (!Pinhole.Sees(view, center)) return false;
         if (PhotoVoxelReconstruction.Window(view, boxMin, boxMax) is not { } window) return false;
@@ -101,8 +108,17 @@ public sealed class LiveReconstruction
         if (!changed) return false;
 
         var mesh = SurfaceNets.Extract(_volume, _options.MinWeight);
-        var plane = PhotoVoxelReconstruction.TablePlane(mesh.Positions, guidePlane);
-        Volatile.Write(ref _surface, MeshCleanup.Piece(mesh, target, plane, 2 * _options.VoxelSize));
+        var plane = _table;
+        if (plane is null)
+        {
+            // Locked once the photos measure it: a table that moved between updates would cut differently.
+            plane = PhotoVoxelReconstruction.TablePlane(mesh.Positions, guidePlane, out bool measured);
+            if (measured) _table = plane;
+        }
+        var piece = MeshCleanup.Piece(mesh, target, plane, 2 * _options.VoxelSize);
+        // The live view must only grow: a surface that suddenly halves is an unlucky update, not the scan shrinking.
+        if (Surface is { } shown && piece.Positions.Count < shown.Positions.Count / 2) return false;
+        Volatile.Write(ref _surface, piece);
         return true;
     }
 }

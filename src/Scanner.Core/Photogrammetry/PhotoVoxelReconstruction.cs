@@ -91,16 +91,28 @@ public static class PhotoVoxelReconstruction
     /// the fit only looks near the ARCore table height: ARCore places the table within about a centimetre, the
     /// photos then give its exact height and slope.
     /// </summary>
-    public static FittedSupportPlane? TablePlane(IReadOnlyList<Vector3> surface, FittedSupportPlane? guide)
+    public static FittedSupportPlane? TablePlane(IReadOnlyList<Vector3> surface, FittedSupportPlane? guide) =>
+        TablePlane(surface, guide, out _);
+
+    /// <param name="measured">True when the photos measured the plane; false when it is ARCore's (or none).</param>
+    public static FittedSupportPlane? TablePlane(IReadOnlyList<Vector3> surface, FittedSupportPlane? guide, out bool measured)
     {
-        if (guide is not { } g) return SupportPlaneFinder.Fit(surface);
+        measured = false;
+        if (guide is not { } g)
+        {
+            var own = SupportPlaneFinder.Fit(surface);
+            measured = own is not null;
+            return own;
+        }
         // The ARCore margin is its depth noise, often thicker than a book; the photo surface is far thinner than that.
         var fallback = g with { Margin = 0.005f };
         var near = surface.Where(p => MathF.Abs(p.Y - g.HeightAt(p.X, p.Z)) <= 0.01f).ToArray();
-        if (near.Length < surface.Count / 6) return fallback; // too little table in view to measure it
+        if (near.Length < Math.Max(30, surface.Count / 6)) return fallback; // too little table in view to measure it
         float x = near.Average(p => p.X), z = near.Average(p => p.Z);
-        return SupportPlaneFinder.Fit(near) is { } fitted && MathF.Abs(fitted.HeightAt(x, z) - g.HeightAt(x, z)) <= 0.01f
-            ? fitted : fallback;
+        if (SupportPlaneFinder.Fit(near) is not { } fitted || MathF.Abs(fitted.HeightAt(x, z) - g.HeightAt(x, z)) > 0.01f)
+            return fallback;
+        measured = true;
+        return fitted;
     }
 
     /// <summary>

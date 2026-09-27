@@ -7,11 +7,14 @@ public static class MeshCleanup
 {
     /// <summary>
     /// The piece standing on the table: drops the vertices on or below <paramref name="plane"/> (with its margin) and
-    /// keeps the triangle-connected part nearest <paramref name="target"/>. Parts that only touch through a gap of up to
-    /// <paramref name="linkDistance"/> still count as connected, since a TSDF surface has small holes where no photo
-    /// matched.
+    /// keeps every sizeable part: parts of at least <paramref name="minVertices"/> vertices and <paramref name="minFraction"/>
+    /// of the largest part. Only when none is that large, the part nearest <paramref name="target"/>. Keeping the one part
+    /// nearest the target instead made the result flip to a speck of noise that happened to lie closer. Parts that only
+    /// touch through a gap of up to <paramref name="linkDistance"/> still count as connected, since a TSDF surface has
+    /// small holes where no photo matched.
     /// </summary>
-    public static TriangleMesh Piece(TriangleMesh mesh, Vector3 target, FittedSupportPlane? plane, float linkDistance)
+    public static TriangleMesh Piece(TriangleMesh mesh, Vector3 target, FittedSupportPlane? plane, float linkDistance,
+        int minVertices = 30, float minFraction = 0.05f)
     {
         int n = mesh.Positions.Count;
         var keep = new bool[n];
@@ -68,12 +71,17 @@ public static class MeshCleanup
         }
         var result = new TriangleMesh();
         if (nearest < 0) return result;
-        int root = Find(nearest);
+        var sizes = new Dictionary<int, int>();
+        for (int i = 0; i < n; i++)
+            if (keep[i]) sizes[Find(i)] = sizes.GetValueOrDefault(Find(i)) + 1;
+        int threshold = Math.Max(minVertices, (int)(minFraction * sizes.Values.Max()));
+        var kept = sizes.Where(s => s.Value >= threshold).Select(s => s.Key).ToHashSet();
+        if (kept.Count == 0) kept.Add(Find(nearest));
         var map = new int[n];
         for (int i = 0; i < n; i++)
         {
             map[i] = -1;
-            if (!keep[i] || Find(i) != root) continue;
+            if (!keep[i] || !kept.Contains(Find(i))) continue;
             map[i] = result.Positions.Count;
             result.Positions.Add(mesh.Positions[i]);
             result.Normals.Add(mesh.Normals[i]);
