@@ -18,10 +18,10 @@ clouds or meshes.
   the points. Only depth points within 30 cm of the target are accumulated.
 - Depth frames are integrated at ~5 Hz into a 5 mm voxel point accumulator, filtered by depth range
   (0.10–1.50 m) and ARCore confidence.
-- **Camera photos** are captured once per second (up to 60) with their pose and intrinsics.
+- **Depth-only baseline**: photo capture and photogrammetry are disconnected from the app. The camera uses ARCore's default configuration.
 - On Finish, the piece is **isolated** from the table: points on the support plane are dropped and the connected
   cluster nearest the target is kept (falls back to all points if isolation finds too few).
-- **Preview page**: orbitable 3D point cloud (drag to rotate, pinch to zoom) and a photo browser.
+- **Preview page**: saved 3D point cloud (drag to rotate, pinch to zoom). Finish saves the depth result without running photo reconstruction.
 - Every scan is saved as a session folder on the device (see [Session format](#session-format)).
 
 The Windows target builds, but its views only show a placeholder message: scanning and the 3D preview are Android-only.
@@ -100,8 +100,8 @@ All projects build with warnings treated as errors.
 
 1. Put the object on a table and open the app; grant camera permission and install ARCore services if asked.
 2. Move the phone a little so ARCore detects the table, aim the crosshair at the object and press **Start**.
-3. Walk slowly around the object; the status line shows tracking state, points, frames and photos.
-4. Press **Finish**. The app isolates the object and opens the preview (3D cloud / photos).
+3. Walk slowly around the object; the status line shows tracking state, points and depth frames.
+4. Press **Finish**. The app isolates the object and opens the saved 3D point cloud.
 
 Leaving the scan page before pressing Finish discards the unfinished session.
 
@@ -115,6 +115,8 @@ Each scan is a folder under the app's data directory (`<AppData>/sessions/<id>/`
 | `points.ply` | Isolated point cloud (metres, world frame, +Y up) |
 | `frames/NNNNNN.frame` | Binary depth frame: `S3DF` magic, intrinsics, timestamp, camera→world matrix, depth as uint16 mm, optional confidence bytes (little-endian) |
 | `photos/NNNNNN.jpg` + `.json` | Camera photo with its intrinsics, camera→world pose, timestamp and display rotation |
+
+New app scans contain depth frames and points only; the photo fields remain for compatibility with older sessions. The experimental reconstruction libraries and desktop processor remain in the repository but are not part of the phone app.
 
 `ScanArchive.Export` zips a session folder into a portable `.scan` file. Version 1 sessions (without photos)
 still load.

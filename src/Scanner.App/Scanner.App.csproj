@@ -68,7 +68,6 @@
 	</ItemGroup>
 	<ItemGroup>
 	  <ProjectReference Include="..\Scanner.Capture\Scanner.Capture.csproj" />
-	  <ProjectReference Include="..\Scanner.Core\Scanner.Core.csproj" />
 	</ItemGroup>
 
 </Project>
