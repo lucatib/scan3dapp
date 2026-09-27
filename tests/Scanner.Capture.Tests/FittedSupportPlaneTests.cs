@@ -5,6 +5,33 @@ namespace Scanner.Capture.Tests;
 
 public class FittedSupportPlaneTests
 {
+    [Fact]
+    public void Thick_depth_noise_band_is_removed_without_using_object_height_as_noise()
+    {
+        var points = new List<Vector3>();
+        var random = new Random(42);
+        for (int x = -40; x <= 40; x++)
+        for (int z = -40; z <= 40; z++)
+        for (int sample = 0; sample < 5; sample++)
+        {
+            // Symmetric triangular depth noise, with an 18 mm upper and lower tail.
+            float noise = (float)(random.NextDouble() - random.NextDouble()) * .018f;
+            points.Add(new(x * .005f, noise, z * .005f));
+        }
+        var piece = new List<Vector3>();
+        for (int x = -5; x <= 5; x++)
+        for (int z = -5; z <= 5; z++)
+            piece.Add(new(x * .005f, .03f, z * .005f));
+        points.AddRange(piece);
+
+        var plane = SupportPlaneFinder.Fit(points);
+        Assert.NotNull(plane);
+        Assert.True(plane.Value.Margin > .01f);
+        var result = ObjectIsolator.IsolateAbovePlane(points, new(0, .03f, 0), plane.Value, .005f);
+        Assert.Equal(piece.Count, result.Length);
+        Assert.All(result, p => Assert.Equal(.03f, p.Y));
+    }
+
     private static List<Vector3> Scene()
     {
         var points = new List<Vector3>();

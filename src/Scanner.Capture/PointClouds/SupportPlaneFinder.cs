@@ -69,10 +69,13 @@ public static class SupportPlaneFinder
             selected = points.Where(p => MathF.Abs(p.Y - plane.HeightAt(p.X, p.Z)) <= .005f).ToArray();
         }
         if (selected.Length < points.Count / 10) return null;
-        // Use the central surface band only: taller object geometry must not inflate the removal margin.
-        var residuals = selected.Select(p => MathF.Abs(p.Y - plane.HeightAt(p.X, p.Z))).Order().ToArray();
+        // Estimate the full noise tail below the table, where object geometry cannot inflate it.
+        // The refit inliers are truncated at 5 mm and cannot measure a thicker depth band.
+        // Reflect the lower tail above the plane, assuming approximately symmetric depth noise.
+        var residuals = points.Select(p => plane.HeightAt(p.X, p.Z) - p.Y)
+            .Where(r => r >= 0 && r <= .05f).Order().ToArray();
         if (residuals.Length == 0) return null;
-        float margin = Math.Clamp(residuals[(int)((residuals.Length - 1) * .9)] + .002f, .004f, .007f);
+        float margin = Math.Clamp(residuals[(int)((residuals.Length - 1) * .95)] + .002f, .004f, .025f);
         return plane with { Margin = margin };
     }
     private static int Bin(float y, float binSize) => (int)MathF.Floor(y / binSize);
