@@ -184,6 +184,22 @@ public sealed class ScanPage : ContentPage
         if (_scan is null || _sessionId is null || _finishing) return;
         var scan = _scan;
         string sessionId = _sessionId;
+        if (LoopGap(scan) is > LoopCoverage.MaxGapDegrees and < 360 and var gap)
+        {
+            _finishing = true; // no second Finish while the question is open
+            bool finish;
+            try
+            {
+                finish = await DisplayAlertAsync("Loop not closed",
+                    $"The photos miss {gap:F0}° of the way around the piece. That side will come out wrong.",
+                    "Finish anyway", "Keep scanning");
+            }
+            finally
+            {
+                _finishing = false;
+            }
+            if (!finish || _scan != scan) return;
+        }
         _finishing = true;
         _finish.IsEnabled = false;
         _startPause.IsEnabled = false;
@@ -279,11 +295,17 @@ public sealed class ScanPage : ContentPage
         if (_scan is null || _finishing || _scan.State == LiveScanState.Completed) return;
         _status.Text = $"{status.Tracking} · {status.State} · {status.PointCount:N0} points · {status.FrameCount} depth frames"
                        + $" · {status.PhotoCount} photos"
+                       + (LoopGap(_scan) is < 360 and var gap ? $" · loop {360 - gap:F0}°" : "")
                        + (_scan.State == LiveScanState.Recording && !_scan.IsDepthReady
                            ? "\nWaiting for stable depth — keep the table in view and move slowly." : "")
                        + (status.Message is { } message ? $"\n{message}" : "");
         UpdateButtons();
     }
+
+    /// <summary>The widest turn around the target no photo was taken from (360 before there is a target).</summary>
+    private static float LoopGap(LiveScanSession scan) => scan.Target is { } target
+        ? LoopCoverage.LargestGapDegrees(scan.PreviewPhotos().Select(p => p.CameraToWorld.Translation), target)
+        : 360f;
 
     private void UpdateButtons()
     {

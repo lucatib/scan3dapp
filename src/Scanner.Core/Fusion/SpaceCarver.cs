@@ -9,7 +9,7 @@ namespace Scanner.Core.Fusion;
 /// Completes a photo TSDF into a solid standing on the table. Stereo measures surfaces that face the cameras; steep
 /// walls and plain patches it barely matches, so the TSDF leaves them ragged or open. Every depth map also says where
 /// space is empty, though: the ray to each measured pixel crosses nothing. A voxel above the table that no depth map
-/// sees through, and that some depth map sees behind a measured surface, is inside the piece. A wall then stands where
+/// sees through, and that most of the depth maps looking at it see behind a measured surface, is inside the piece. A wall then stands where
 /// the photos stop seeing the table beside it, holes where nothing matched fill, and the underside closes at the table.
 /// </summary>
 public static class SpaceCarver
@@ -88,13 +88,17 @@ public static class SpaceCarver
     private static float FloorZone(FittedSupportPlane table, Vector3 p, float voxelSize) =>
         table.HeightAt(p.X, p.Z) + table.Margin + 2 * voxelSize;
 
-    /// <summary>No depth map sees through <paramref name="p"/>, and enough see it behind the piece's surface. Only a
-    /// surface above the table counts: floor hides the voxels just under it too, and counting that made a slab of floor
-    /// solid wherever the tiles stood a few millimetres above the fitted plane.</summary>
+    /// <summary>
+    /// No depth map sees through <paramref name="p"/>, and at least half of the maps that see it (and
+    /// <see cref="MinHiddenMaps"/>) see it behind the piece's surface. Only a surface above the table counts: floor hides the voxels just under it too, and counting that made a slab of floor
+    /// solid wherever the tiles stood a few millimetres above the fitted plane.
+    /// The share matters on the side the photos missed: a steel and glass grinder that stereo barely matched, photographed
+    /// around 250° of the loop, grew 12 cm wings of space that two maps saw behind it and the rest saw nothing in.
+    /// </summary>
     private static bool IsSolid(IReadOnlyList<(PhotoView View, float[] Depth)> maps, Vector3 p, float voxelSize,
         FittedSupportPlane table)
     {
-        int hidden = 0;
+        int hidden = 0, seen = 0;
         foreach (var (view, depth) in maps)
         {
             var camera = Pinhole.ToCamera(view.CameraToWorld, p);
@@ -102,6 +106,7 @@ public static class SpaceCarver
             int cu = (int)MathF.Round(u), cv = (int)MathF.Round(v);
             var k = view.Intrinsics;
             if (cu < 1 || cv < 1 || cu >= k.Width - 1 || cv >= k.Height - 1) continue;
+            seen++;
             float tolerance = 1.5f * voxelSize + 0.005f * camera.Z;
             // The 3x3 pixels around the projection: depth maps are sparse, most pixels of plain surface are empty.
             bool behind = false;
@@ -117,6 +122,6 @@ public static class SpaceCarver
             }
             if (behind) hidden++;
         }
-        return hidden >= MinHiddenMaps;
+        return hidden >= MinHiddenMaps && 2 * hidden >= seen;
     }
 }
