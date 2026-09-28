@@ -5,6 +5,15 @@ namespace Scanner.Capture.Tests;
 
 public class DepthStartupGateTests
 {
+    [Fact]
+    public void Small_stable_surface_starts_after_three_frames()
+    {
+        var gate = new DepthStartupGate();
+        Assert.False(gate.Accept(Surface(0, 200), 14400));
+        Assert.False(gate.Accept(Surface(.004f, 200), 14400));
+        Assert.True(gate.Accept(Surface(.003f, 200), 14400));
+    }
+
     private static Vector3[] Surface(float height, int count = 1000) =>
         Enumerable.Range(0, count).Select(i => new Vector3((i % 40) * .005f, height, (i / 40) * .005f)).ToArray();
 
@@ -12,7 +21,7 @@ public class DepthStartupGateTests
     public void Sparse_frames_never_start_accumulation()
     {
         var gate = new DepthStartupGate();
-        for (int i = 0; i < 20; i++) Assert.False(gate.Accept(Surface(0, 300), 14400));
+        for (int i = 0; i < 20; i++) Assert.False(gate.Accept(Surface(0, 150), 14400));
     }
 
     [Fact]

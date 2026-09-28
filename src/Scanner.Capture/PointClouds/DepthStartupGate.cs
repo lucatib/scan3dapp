@@ -14,7 +14,9 @@ public sealed class DepthStartupGate
     public bool Accept(IReadOnlyList<Vector3> points, int imagePixels)
     {
         if (IsReady) return true;
-        float? height = points.Count >= Math.Max(500, imagePixels / 20)
+        // The points are already cropped around the target; a small object on a plain table
+        // may provide only a few hundred. Keep the three-frame height stability check.
+        float? height = points.Count >= Math.Max(200, imagePixels / 100)
             ? SupportPlaneFinder.Find(points) : null;
         if (height is not { } y)
         {
