@@ -120,6 +120,18 @@ public sealed class LiveScanSession
         }
     }
 
+    /// <summary>Moves the target after it was picked, while recording or paused: when ARCore's depth never starts,
+    /// the hit test it was picked with is unreliable too, and the point the photos aim at replaces it.</summary>
+    public void MoveTarget(Vector3 target)
+    {
+        lock (_gate)
+        {
+            if (_state is not (LiveScanState.Recording or LiveScanState.Paused))
+                throw new InvalidOperationException($"Cannot move the target while {_state}.");
+            Target = target;
+        }
+    }
+
     public void Pause()
     {
         lock (_gate)

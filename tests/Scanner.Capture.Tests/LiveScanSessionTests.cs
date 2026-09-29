@@ -35,6 +35,23 @@ public sealed class LiveScanSessionTests : IDisposable
     }
 
     [Fact]
+    public void The_target_can_move_while_recording_or_paused_and_is_what_the_manifest_keeps()
+    {
+        var session = NewSession();
+        Assert.Throws<InvalidOperationException>(() => session.MoveTarget(Vector3.One));
+        session.RequestStart();
+        session.SetTarget(Vector3.Zero, null);
+        session.MoveTarget(new Vector3(1, 2, 3));
+        session.Pause();
+        session.MoveTarget(new Vector3(-3.1f, -0.06f, -3.7f));
+
+        Assert.Equal(new Vector3(-3.1f, -0.06f, -3.7f), session.Target);
+        session.Complete();
+        Assert.Equal([-3.1f, -0.06f, -3.7f], ScanSessionReader.ReadManifest(_dir).Target!);
+        Assert.Throws<InvalidOperationException>(() => session.MoveTarget(Vector3.One));
+    }
+
+    [Fact]
     public void Photo_geometry_takes_priority_and_preserves_a_low_rim()
     {
         var session = NewSession(new LiveScanOptions(MinIsolatedPoints: 20));

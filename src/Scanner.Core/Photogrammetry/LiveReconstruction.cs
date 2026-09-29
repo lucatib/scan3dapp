@@ -31,7 +31,11 @@ public sealed class LiveReconstruction
     private int _shownVersion = -1;
     private TriangleMesh? _surface;
     private Vector3 _boxMin = new(float.PositiveInfinity), _boxMax = new(float.NegativeInfinity);
+    private Vector3? _boxTarget; // the target the box has grown around
     private FittedSupportPlane? _table; // locked once the photos measured it
+
+    /// <summary>A target that moved further than this from the one the box grew around starts a new box.</summary>
+    private const float MovedTarget = 0.03f;
 
     /// <summary>A depth map of photo <see cref="Photo"/>'s crop; <see cref="Confirmed"/> once other maps agreed with it.</summary>
     private sealed class Entry(int photo, PhotoView crop, DepthMap map)
@@ -53,6 +57,9 @@ public sealed class LiveReconstruction
 
     /// <summary>The latest surface of the piece, or null before there is one.</summary>
     public TriangleMesh? Surface => Volatile.Read(ref _surface);
+
+    /// <summary>The world box the depth maps are cropped to (min, max). Read it on the worker thread.</summary>
+    public (Vector3 Min, Vector3 Max) Box => (_boxMin, _boxMax);
 
     /// <summary>Depth maps fused so far.</summary>
     public int FusedMaps => _maps.Count(m => m.Confirmed is not null);
@@ -82,12 +89,21 @@ public sealed class LiveReconstruction
         }
 
         var guidePlane = SupportPlaneFinder.Fit(guide);
-        // The box only grows: ARCore's cluster wanders as points come in, and a shrinking box would cut away
-        // surface the user has already seen appear.
+        // The box only grows around one target: ARCore's cluster wanders as points come in, and a shrinking box would
+        // cut away surface the user has already seen appear. A target that moved (the photos located the piece when
+        // ARCore's depth failed) starts a new box: keeping the old place too once grew it to 75 cm of empty table.
         var (newMin, newMax) = PhotoVoxelReconstruction.ObjectBox(guide, target, guidePlane, _options.BoxPadding,
             _options.MaxHalfWidth);
-        _boxMin = Vector3.Min(_boxMin, newMin);
-        _boxMax = Vector3.Max(_boxMax, newMax);
+        if (_boxTarget is { } grown && Vector3.Distance(grown, target) <= MovedTarget)
+        {
+            _boxMin = Vector3.Min(_boxMin, newMin);
+            _boxMax = Vector3.Max(_boxMax, newMax);
+        }
+        else
+        {
+            (_boxMin, _boxMax) = (newMin, newMax);
+            _boxTarget = target;
+        }
 
         int reference = photos.Count - 1;
         if (reference != _lastPhoto && sharp[reference] && AddMap(photos, sharp, reference)) changed |= FuseConfirmed();

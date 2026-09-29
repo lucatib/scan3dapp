@@ -30,6 +30,7 @@ internal sealed class ArScanRenderer : Java.Lang.Object, GLSurfaceView.IRenderer
     private const int WaitingForDepthFrames = 30;
 
     private const string WaitingForDepthMessage = "Waiting for depth from the camera…";
+    private const string NoDepthMessage = "No usable ARCore depth (too dark?): the photos locate the piece.";
 
     private static readonly TimeSpan PointUploadInterval = TimeSpan.FromMilliseconds(300);
     private static readonly TimeSpan StatusInterval = TimeSpan.FromMilliseconds(250);
@@ -58,6 +59,7 @@ internal sealed class ArScanRenderer : Java.Lang.Object, GLSurfaceView.IRenderer
     private int _displayRotation;
     private int _depthlessFrames; // GL thread only
     private bool _waitingForDepth; // GL thread only
+    private volatile LiveScanSession? _locatedFromPhotos; // the scan whose target the photos moved; set by the photo worker
     private int _integrating;
     private int _capturingPhoto;
     private volatile LivePhotogrammetry? _live;
@@ -180,6 +182,7 @@ internal sealed class ArScanRenderer : Java.Lang.Object, GLSurfaceView.IRenderer
         {
             _lastStatus = _clock.Elapsed;
             string? message = _message ?? _live?.LastError ?? (_waitingForDepth ? WaitingForDepthMessage : null)
+                              ?? (scan is { IsDepthReady: false } && ReferenceEquals(_locatedFromPhotos, scan) ? NoDepthMessage : null)
                               ?? (_live?.Poses.LatestIsBlurred == true ? "Photos are blurred: move slower." : null);
             _reportStatus(new ArScanStatus(tracking, scan?.State ?? LiveScanState.Idle,
                 scan?.PointCount ?? 0, scan?.FrameCount ?? 0, scan?.PhotoCount ?? 0, message));
@@ -300,6 +303,7 @@ internal sealed class ArScanRenderer : Java.Lang.Object, GLSurfaceView.IRenderer
                     scan.ReleasePhotoReservation();
                 else
                 {
+                    LocateFromPhotos(scan);
                     // Poses, corners and the live surface; failures there are reported, the recording goes on.
                     _live?.Offer(preview, () => new ScanProgress(scan.Target, scan.SnapshotPoints(),
                         scan.State == LiveScanState.Recording));
@@ -315,6 +319,26 @@ internal sealed class ArScanRenderer : Java.Lang.Object, GLSurfaceView.IRenderer
                 Volatile.Write(ref _capturingPhoto, 0);
             }
         }));
+    }
+
+    /// <summary>
+    /// While ARCore's depth has not started, the target follows the point the photos aim at. In a dim room ARCore once
+    /// gave depth 5-10 times too far for a whole scan: no point passed, and the hit-test target sat off the piece, so the
+    /// photos, all showing the piece, were matched around the wrong place. Call from the photo worker.
+    /// </summary>
+    private void LocateFromPhotos(LiveScanSession scan)
+    {
+        if (scan.IsDepthReady || scan.PhotoCount < AimPoint.MinViews) return;
+        if (AimPoint.Estimate(scan.PreviewPhotos()) is not { } aim) return;
+        try
+        {
+            scan.MoveTarget(aim);
+            _locatedFromPhotos = scan;
+        }
+        catch (InvalidOperationException)
+        {
+            // Finished meanwhile: the target no longer matters.
+        }
     }
 
     /// <summary>Counts consecutive draws without usable depth, so the UI can say why nothing is being recorded.</summary>

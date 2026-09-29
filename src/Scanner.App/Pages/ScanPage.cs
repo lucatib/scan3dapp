@@ -312,7 +312,8 @@ public sealed class ScanPage : ContentPage
         if (_scan is null || _scan.State == LiveScanState.Completed) return;
         bool running = _scan.State is LiveScanState.Recording or LiveScanState.WaitingForTarget;
         _startPause.Text = running ? "Pause" : _scan.FrameCount > 0 ? "Resume" : "Start";
-        _finish.IsEnabled = _scan.PointCount > 0;
+        // Photos alone can make the model when ARCore's depth never started (the photos then locate the piece).
+        _finish.IsEnabled = _scan.PointCount > 0 || _scan.PhotoCount >= AimPoint.MinViews;
     }
 }
 
