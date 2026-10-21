@@ -22,6 +22,7 @@ public static class MauiProgram
 #elif IOS
 				handlers.AddHandler<Scanner.App.Controls.ArScanView, Scanner.App.iOS.Handlers.ArScanViewHandler>();
 				handlers.AddHandler<Scanner.App.Controls.PointCloudView, Scanner.App.iOS.Handlers.PointCloudViewHandler>();
+				handlers.AddHandler<Scanner.App.Controls.TurntableView, Scanner.App.iOS.Handlers.TurntableViewHandler>();
 #elif WINDOWS
 				handlers.AddHandler<Scanner.App.Controls.ArScanView, Scanner.App.WinUI.Handlers.ArScanViewHandler>();
 				handlers.AddHandler<Scanner.App.Controls.PointCloudView, Scanner.App.WinUI.Handlers.PointCloudViewHandler>();
@@ -31,6 +32,7 @@ public static class MauiProgram
 		builder.Services.AddSingleton<Scanner.App.Services.SessionStore>();
 		builder.Services.AddTransient<Scanner.App.Pages.ScanPage>();
 		builder.Services.AddTransient<Scanner.App.Pages.PreviewPage>();
+		builder.Services.AddTransient<Scanner.App.Pages.TurntablePage>();
 
 #if DEBUG
 		builder.Logging.AddDebug();

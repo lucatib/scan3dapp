@@ -52,6 +52,8 @@ public sealed class ScanPage : ContentPage
             Children = { _status, new HorizontalStackLayout { Spacing = 12, Children = { _startPause, _finish } } },
         };
         Content = new Grid { Children = { _arView, crosshair, panel } };
+        if (ArPlatform.HasFrontDepthCamera)
+            ToolbarItems.Add(new ToolbarItem("Turntable", null, async () => await Shell.Current.GoToAsync("turntable")));
     }
 
     protected override async void OnAppearing()

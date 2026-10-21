@@ -6,5 +6,6 @@ public partial class AppShell : Shell
 	{
 		InitializeComponent();
 		Routing.RegisterRoute("preview", typeof(Scanner.App.Pages.PreviewPage));
+		Routing.RegisterRoute("turntable", typeof(Scanner.App.Pages.TurntablePage));
 	}
 }
