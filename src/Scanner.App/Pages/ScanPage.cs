@@ -2,6 +2,7 @@ using Scanner.App.Controls;
 using Scanner.App.Services;
 using Scanner.Capture.Live;
 using Scanner.Capture.Sessions;
+using Scanner.Core.Meshing;
 using Scanner.Core.Photogrammetry;
 using Scanner.Core.Texturing;
 
@@ -130,7 +131,8 @@ public sealed class ScanPage : ContentPage
                 // ScanSessionWriter creates the session folder, so this can fail on a full or read-only volume.
                 _scan = new LiveScanSession(new ScanSessionWriter(directory, id, DeviceInfo.Current.Model),
                     new LiveScanOptions(RequireStableDepth: true));
-                _live = new LivePhotogrammetry(LiveOptions, refineEvery: RefineEvery);
+                // A depth sensor measures the surface itself: no photo stereo during the scan.
+                _live = ArPlatform.HasDepthSensor ? null : new LivePhotogrammetry(LiveOptions, refineEvery: RefineEvery);
                 _arView.Live = _live;
                 _arView.Session = _scan;
                 _startPause.IsEnabled = true;
@@ -205,10 +207,24 @@ public sealed class ScanPage : ContentPage
         _startPause.IsEnabled = false;
         _status.Text = "Reconstructing photos — this may take a minute…";
         scan.Pause();
+        IReadOnlyList<MeshChunk> sensorMesh = [];
+        try
+        {
+            sensorMesh = _arView.ReadSensorMesh(); // before the AR session pauses
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Scan3D: Could not read the sensor mesh: {ex}");
+        }
         _arView.Pause(); // drains the GL draw before waiting for its registered photo worker
         try
         {
             await scan.WaitForPhotoCaptureAsync();
+            if (sensorMesh.Count > 0)
+            {
+                await FinishFromSensorMeshAsync(scan, sessionId, sensorMesh);
+                return;
+            }
             var live = _live;
             if (live is not null) await live.StopAsync(); // the finished scan gets the whole CPU
             string directory = _store.DirectoryOf(sessionId);
@@ -288,6 +304,44 @@ public sealed class ScanPage : ContentPage
         {
             _status.Text = $"Could not finish the scan: {ex.Message}";
         }
+    }
+
+    /// <summary>
+    /// Finishes a scan whose geometry is the depth sensor's own mesh (LiDAR): the piece is cut out of it, its poses are
+    /// the AR session's (LiDAR tracking needs no refinement), and every stored photo is a texture candidate.
+    /// </summary>
+    private async Task FinishFromSensorMeshAsync(LiveScanSession scan, string sessionId, IReadOnlyList<MeshChunk> sensorMesh)
+    {
+        string directory = _store.DirectoryOf(sessionId);
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        var (result, textured, triangles) = await Task.Run(() =>
+        {
+            SensorMeshPiece? piece = scan.Target is { } target
+                ? SensorMesh.Cut(sensorMesh, target, scan.SnapshotPoints(), scan.SupportPlaneHeight)
+                : null;
+            var mesh = piece is { Mesh.TriangleCount: > 0 } ? piece.Mesh : null;
+            var completed = scan.Complete(reconstructedPiece: mesh?.Positions, reconstructedPlane: piece?.Plane);
+            bool wroteModel = false;
+            if (mesh is not null && completed.PiecePoints.Length == mesh.Positions.Count)
+            {
+                try
+                {
+                    var cameras = ScanSessionReader.ReadPhotos(directory).Select(p => TextureCamera.FromPhoto(p.Photo)).ToList();
+                    TexturedModelFile.Write(directory, MeshTexturer.Texture(mesh, cameras));
+                    wroteModel = true;
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Scan3D: Texturing failed: {ex}");
+                }
+            }
+            Console.WriteLine($"Scan3D finish (sensor mesh): {clock.Elapsed.TotalSeconds:F1} s, chunks {sensorMesh.Count}, "
+                + $"triangles {mesh?.TriangleCount}, model {wroteModel}");
+            return (completed, wroteModel, mesh?.TriangleCount ?? 0);
+        });
+        _status.Text = textured ? $"LiDAR model ready in {clock.Elapsed.TotalSeconds:F0} s ({triangles:N0} triangles)."
+            : result.Isolated ? "Piece isolated from the table." : "Could not isolate the piece; showing all points.";
+        if (_visible) await Shell.Current.GoToAsync($"preview?id={sessionId}");
     }
 
     private void OnStatusChanged(object? sender, ArScanStatus status)

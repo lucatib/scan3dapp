@@ -49,4 +49,11 @@ public sealed class ArScanView : View
     }
 
     internal void ReportStatus(ArScanStatus status) => StatusChanged?.Invoke(this, status);
+
+    /// <summary>Set by a handler whose platform measures its own surface mesh (ARKit with LiDAR).</summary>
+    internal Func<IReadOnlyList<Scanner.Core.Meshing.MeshChunk>>? SensorMeshReader { get; set; }
+
+    /// <summary>The depth sensor's mesh of everything seen so far, in world metres; empty where the platform has none.
+    /// Read it before <see cref="Pause"/>.</summary>
+    public IReadOnlyList<Scanner.Core.Meshing.MeshChunk> ReadSensorMesh() => SensorMeshReader?.Invoke() ?? [];
 }

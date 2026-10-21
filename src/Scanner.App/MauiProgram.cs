@@ -19,6 +19,9 @@ public static class MauiProgram
 #if ANDROID
 				handlers.AddHandler<Scanner.App.Controls.ArScanView, Scanner.App.Droid.Handlers.ArScanViewHandler>();
 				handlers.AddHandler<Scanner.App.Controls.PointCloudView, Scanner.App.Droid.Handlers.PointCloudViewHandler>();
+#elif IOS
+				handlers.AddHandler<Scanner.App.Controls.ArScanView, Scanner.App.iOS.Handlers.ArScanViewHandler>();
+				handlers.AddHandler<Scanner.App.Controls.PointCloudView, Scanner.App.iOS.Handlers.PointCloudViewHandler>();
 #elif WINDOWS
 				handlers.AddHandler<Scanner.App.Controls.ArScanView, Scanner.App.WinUI.Handlers.ArScanViewHandler>();
 				handlers.AddHandler<Scanner.App.Controls.PointCloudView, Scanner.App.WinUI.Handlers.PointCloudViewHandler>();
