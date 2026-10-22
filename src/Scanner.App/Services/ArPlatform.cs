@@ -12,4 +12,7 @@ public static partial class ArPlatform
 
     /// <summary>True where the front camera measures depth (TrueDepth on iPhone): the turntable scan is offered.</summary>
     public static bool HasFrontDepthCamera => OperatingSystem.IsIOS();
+
+    /// <summary>True where the printed-mat turntable scan is available (Android, its camera through ARCore).</summary>
+    public static bool HasMatTurntable => OperatingSystem.IsAndroid();
 }

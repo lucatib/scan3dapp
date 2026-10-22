@@ -19,6 +19,7 @@ public static class MauiProgram
 #if ANDROID
 				handlers.AddHandler<Scanner.App.Controls.ArScanView, Scanner.App.Droid.Handlers.ArScanViewHandler>();
 				handlers.AddHandler<Scanner.App.Controls.PointCloudView, Scanner.App.Droid.Handlers.PointCloudViewHandler>();
+				handlers.AddHandler<Scanner.App.Controls.PhotoCameraView, Scanner.App.Droid.Handlers.PhotoCameraViewHandler>();
 #elif IOS
 				handlers.AddHandler<Scanner.App.Controls.ArScanView, Scanner.App.iOS.Handlers.ArScanViewHandler>();
 				handlers.AddHandler<Scanner.App.Controls.PointCloudView, Scanner.App.iOS.Handlers.PointCloudViewHandler>();
@@ -30,7 +31,9 @@ public static class MauiProgram
 			});
 
 		builder.Services.AddSingleton<Scanner.App.Services.SessionStore>();
+		builder.Services.AddTransient<Scanner.App.Pages.ModePage>();
 		builder.Services.AddTransient<Scanner.App.Pages.ScanPage>();
+		builder.Services.AddTransient<Scanner.App.Pages.MatTurntablePage>();
 		builder.Services.AddTransient<Scanner.App.Pages.PreviewPage>();
 		builder.Services.AddTransient<Scanner.App.Pages.TurntablePage>();
 

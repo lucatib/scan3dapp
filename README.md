@@ -1,12 +1,26 @@
 # Scan3D
 
-A .NET 10 / .NET MAUI app that turns an Android phone into a 3D scanner, with the goal of producing
+A .NET 10 / .NET MAUI app that turns an Android phone or a LiDAR iPhone into a 3D scanner, with the goal of producing
 **STEP (B-Rep) solids that open as editable bodies in CAD tools such as Autodesk Fusion**, not just point
 clouds or meshes.
 
 > **Status: work in progress.** The phone app scans an object on a table into a **textured, closed mesh** in a
 > few seconds, with a live preview of the surface while scanning. Primitive detection, B-Rep and STEP export exist
 > as tested libraries but are **not yet wired into the app**. See [What works today](#what-works-today).
+
+## Scan modes
+
+The app opens on a mode selection page; each way of scanning is its own mode, offered where the phone can do it.
+
+| Mode | Phone | Geometry from | Poses from |
+|---|---|---|---|
+| **Handheld · AR** | Android (ARCore depth) | Photo stereo in a TSDF, space carving | ARCore, refined from the photos |
+| **Handheld · LiDAR** | iPhone Pro (LiDAR) | ARKit's scene mesh, cut around the target above the table | ARKit |
+| **Turntable · TrueDepth** | iPhone (front TrueDepth) | TrueDepth depth in a 1 mm TSDF | ICP of each depth frame against the piece fused so far |
+| **Turntable · printed mat** | Android | Photo stereo in a TSDF, as handheld | The dots of a printed mat, in every photo (exact, true scale) |
+
+The reconstruction pattern below is the handheld Android mode's, the one tested on a phone. The iPhone modes and the
+mat turntable are tested on synthetic data only so far (see [Turntable modes](#turntable-modes)).
 
 ## Reconstruction pattern
 
@@ -67,7 +81,8 @@ If the photos give no usable surface, the scan falls back to the ARCore depth cl
 
 ## What works today
 
-### Android app (`Scanner.App`)
+### Phone app (`Scanner.App`)
+- **Mode selection** start page (see [Scan modes](#scan-modes)).
 - **Live AR scan** with a crosshair and Start / Pause / Resume / Finish. Start picks the **target** under the
   crosshair (ARCore hit test). Depth frames are accumulated at ~5 Hz (5 mm voxels, 0.10–1.50 m, ARCore confidence)
   once three frames agree on the surface height, and are saved.
@@ -76,13 +91,32 @@ If the photos give no usable surface, the scan falls back to the ARCore depth cl
 - **Preview page**: the textured model (drag to rotate, pinch to zoom); the point cloud when there is no model.
 - Every scan is saved as a session folder on the device (see [Session format](#session-format)).
 
-The Windows target builds, but its views only show a placeholder message: scanning and the 3D preview are Android-only.
+- **iPhone** (`Platforms/iOS`, built only on a Mac or with a paired Mac): the LiDAR handheld scan (ARKit scene
+  mesh plus LiDAR depth and photos into the same session format, photo-patch texture), the TrueDepth turntable, and a
+  SceneKit preview of the model. Compiles; not yet run on a device.
+- **Printed-mat turntable** on Android: the mat is posed in every photo, a photo is kept every 5° of turn, and Finish
+  runs the voxel reconstruction and texturing on them. Not yet run on a device.
+
+The Windows target builds, but its views only show a placeholder message: scanning and the 3D preview are phone-only.
+
+### Turntable modes
+- **TrueDepth** (`TurntableFusion`): the phone stands still, screen towards the piece about 25 cm away. The table is
+  the plane with nothing behind it in the first frame; it and everything beyond 12 cm of the target are cut away, so
+  only the turning piece is left. Point-to-plane ICP (`RigidAligner`) aligns each frame to the points fused so far,
+  starting from the last frame's motion; frames that fit badly are skipped. The model comes out upright, standing on
+  y = 0, and a photo every 15° of turn textures it.
+- **Printed mat** (`TurntableMat`, `MatDetector`, `MatPose`, `MatTurntableScan`): print
+  [docs/turntable-mat.svg](docs/turntable-mat.svg) at 100 % on A4 (the app can also share it). It is a ring of 36 dots,
+  filled or with a hole, read as a code in which any 7 neighbours in a row (either way round) are unique. The detector
+  finds dark disc-shaped blobs, the ellipse most lie on, their order around it and, from runs of 7 or more, which dots
+  they are; a homography and Gauss-Newton on the reprojection give the camera pose in the mat's frame, in metres. The
+  piece stands inside the dashed circle.
 
 ### Libraries (platform-independent, `net10.0`, unit tested)
 | Project | Contents |
 |---|---|
 | `Scanner.Capture` | `DepthFrame` / `CameraIntrinsics` / `PhotoView`, ARCore pose and intrinsics conversions, depth back-projection, voxel point accumulator, support-plane fit, object isolation, PLY read/write, session writer/reader, binary frame codec, textured model OBJ/MTL read/write, `.scan` zip export, live-scan state machine |
-| `Scanner.Core` | **Photogrammetry**: corners, guided matching, tracks, triangulation, bundle adjustment, pose refinement (`PoseRefiner`, `LivePoses`), plane-sweep stereo, depth-map cross-checking, photo sharpness, voxel reconstruction (`PhotoVoxelReconstruction`), live reconstruction (`LiveReconstruction`, `LivePhotogrammetry`). **Fusion and meshing**: sparse TSDF (8³ blocks), space carving, Surface Nets, mesh cleanup. **Texturing**: photo-patch texturing. **Segmentation**: sequential RANSAC for planes and cylinders with least-squares refinement. Synthetic SDF shapes and renderers for tests |
+| `Scanner.Core` | **Turntable**: printed-mat code, dot detection and pose (`TurntableMat`, `MatDetector`, `MatPose`, `MatTurntableScan`), ICP and TrueDepth fusion (`RigidAligner`, `TurntableFusion`). **Sensor mesh**: cutting the piece from a LiDAR mesh (`SensorMesh`). **Photogrammetry**: corners, guided matching, tracks, triangulation, bundle adjustment, pose refinement (`PoseRefiner`, `LivePoses`), plane-sweep stereo, depth-map cross-checking, photo sharpness, voxel reconstruction (`PhotoVoxelReconstruction`), live reconstruction (`LiveReconstruction`, `LivePhotogrammetry`). **Fusion and meshing**: sparse TSDF (8³ blocks), space carving, Surface Nets, mesh cleanup. **Texturing**: photo-patch texturing. **Segmentation**: sequential RANSAC for planes and cylinders with least-squares refinement. Synthetic SDF shapes and renderers for tests |
 | `Scanner.Brep` | B-Rep model (vertices, edges, loops, faces, solid) with a validator, builders for **convex polyhedra** (from planes) and **tubes** (cylinder with optional coaxial hole), and a **STEP AP214 writer** (ISO 10303-21, millimetres) |
 | `Scanner.Desktop` | `scan3d-process`: reprocesses a session or `.scan` file on a PC (the earlier point-cloud pipeline, not yet the voxel/texture one) |
 
@@ -96,7 +130,8 @@ The Windows target builds, but its views only show a placeholder message: scanni
 ### Not implemented yet
 - Running primitive detection / B-Rep / STEP from the app, and exporting or sharing files from the phone (GLB is planned).
 - Cones, spheres, B-spline (organic) surfaces, general (non-convex) solids.
-- iOS / Mac Catalyst (dropped for now: no Mac build agent), desktop reprocessing UI.
+- Full-resolution stills for the turntable modes (both use video-rate camera images, up to 1920 px), Mac Catalyst,
+  desktop reprocessing UI.
 
 The longer-term design is in [docs/superpowers/specs/2026-09-19-scan3d-design.md](docs/superpowers/specs/2026-09-19-scan3d-design.md)
 and [docs/superpowers/specs/2026-09-26-photogrammetry-design.md](docs/superpowers/specs/2026-09-26-photogrammetry-design.md);
@@ -112,9 +147,10 @@ src/
   Scanner.Core/             Fusion, meshing, segmentation                (→ Capture)
   Scanner.Brep/             B-Rep model, builders, STEP writer           (→ Core)
   Scanner.Desktop/          scan3d-process, PC reprocessing tool         (→ Core)
-  Scanner.App/              .NET MAUI app, Android + Windows             (→ Capture, Core)
+  Scanner.App/              .NET MAUI app, Android + iOS + Windows       (→ Capture, Core)
     Platforms/Android/      ARCore session, depth/camera readers, GLES renderers (camera, points, live surface,
-                            textured model)
+                            textured model), the mat turntable camera
+    Platforms/iOS/          ARKit LiDAR scan (mesh, depth, photos), TrueDepth capture, SceneKit preview
 tests/
   Scanner.Capture.Tests/    xUnit
   Scanner.Core.Tests/       xUnit, incl. synthetic scans of known shapes
@@ -122,6 +158,7 @@ tests/
   Scanner.Desktop.Tests/    xUnit
 docs/
   arcore-binding-notes.md   Notes on the ARCore .NET binding and its quirks
+  turntable-mat.svg         The printed turntable mat (A4, print at 100 %)
 ```
 
 ## Requirements
@@ -129,7 +166,9 @@ docs/
 - **.NET SDK 10** (developed with 10.0.401).
 - For the app: the .NET MAUI workloads (`dotnet workload install maui-android maui-windows`) and the Android SDK.
 - For scanning: an **Android 7.0+ (API 24) phone that supports ARCore with the Depth API**, with
-  Google Play Services for AR installed (the app prompts for it).
+  Google Play Services for AR installed (the app prompts for it), or an **iPhone with LiDAR** (12 Pro or later Pro,
+  iOS 15+) for the LiDAR and TrueDepth modes.
+- For the iPhone build: a Mac with Xcode (or a Mac paired with Visual Studio on Windows) and the `ios` workload.
 
 The ARCore binding is [`Vapolia.Google.ARCore`](https://www.nuget.org/packages/Vapolia.Google.ARCore) 1.47.1,
 referenced only for the Android target.
@@ -162,6 +201,13 @@ adb exec-out run-as com.scan3d.scanner tar -cf - -C files sessions > sessions.ta
 
 (`exec-out`, not `shell`: `adb shell` translates line endings and corrupts binary files.)
 
+iPhone app: the `net10.0-ios` target is added automatically on a Mac; on Windows it needs a paired Mac and
+`-p:EnableIos=true` (without a Mac, `-t:Compile` still type-checks the iOS code):
+
+```bash
+dotnet build src/Scanner.App -f net10.0-ios -p:EnableIos=true
+```
+
 Windows placeholder build:
 
 ```bash
@@ -172,6 +218,8 @@ All projects build with warnings treated as errors.
 
 ## Using the app
 
+Pick a mode on the start page. **Handheld** (below) works on every supported phone.
+
 1. Put the object on a table and open the app; grant camera permission and install ARCore services if asked.
    Objects with print or texture work best; shiny or transparent ones do not.
 2. Move the phone a little so ARCore tracks, aim the crosshair at the object and press **Start**.
@@ -180,6 +228,14 @@ All projects build with warnings treated as errors.
 4. Press **Finish**. After a few seconds the textured model opens (drag to rotate, pinch to zoom).
 
 Leaving the scan page before pressing Finish discards the unfinished session.
+
+**Turntable · printed mat** (Android): print the mat, put the piece inside the dashed circle and the phone on a stand
+with the whole ring in view (about 30 cm away, looking down at 25–40°). The status says when the mat is found; press
+**Start**, turn the mat slowly or in small steps through a full turn (the status counts the degrees covered), then
+**Finish**.
+
+**Turntable · TrueDepth** (iPhone): stand the phone about 25 cm from the piece, screen towards it, crosshair on the
+piece; press **Start**, turn the piece one full turn without your hand in view (a turntable is best), then **Finish**.
 
 ## Session format
 

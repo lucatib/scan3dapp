@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="200mm" height="200mm" viewBox="0 0 200 200">
+<rect width="100%" height="100%" fill="white"/>
+<circle cx="188.000" cy="100.000" r="4.500" fill="black"/>
+<circle cx="188.000" cy="100.000" r="2.250" fill="white"/>
+<circle cx="186.663" cy="115.281" r="4.500" fill="black"/>
+<circle cx="182.693" cy="130.098" r="4.500" fill="black"/>
+<circle cx="176.210" cy="144.000" r="4.500" fill="black"/>
+<circle cx="176.210" cy="144.000" r="2.250" fill="white"/>
+<circle cx="167.412" cy="156.565" r="4.500" fill="black"/>
+<circle cx="156.565" cy="167.412" r="4.500" fill="black"/>
+<circle cx="144.000" cy="176.210" r="4.500" fill="black"/>
+<circle cx="130.098" cy="182.693" r="4.500" fill="black"/>
+<circle cx="115.281" cy="186.663" r="4.500" fill="black"/>
+<circle cx="115.281" cy="186.663" r="2.250" fill="white"/>
+<circle cx="100.000" cy="188.000" r="4.500" fill="black"/>
+<circle cx="100.000" cy="188.000" r="2.250" fill="white"/>
+<circle cx="84.719" cy="186.663" r="4.500" fill="black"/>
+<circle cx="69.902" cy="182.693" r="4.500" fill="black"/>
+<circle cx="56.000" cy="176.210" r="4.500" fill="black"/>
+<circle cx="56.000" cy="176.210" r="2.250" fill="white"/>
+<circle cx="43.435" cy="167.412" r="4.500" fill="black"/>
+<circle cx="32.588" cy="156.565" r="4.500" fill="black"/>
+<circle cx="32.588" cy="156.565" r="2.250" fill="white"/>
+<circle cx="23.790" cy="144.000" r="4.500" fill="black"/>
+<circle cx="23.790" cy="144.000" r="2.250" fill="white"/>
+<circle cx="17.307" cy="130.098" r="4.500" fill="black"/>
+<circle cx="13.337" cy="115.281" r="4.500" fill="black"/>
+<circle cx="12.000" cy="100.000" r="4.500" fill="black"/>
+<circle cx="12.000" cy="100.000" r="2.250" fill="white"/>
+<circle cx="13.337" cy="84.719" r="4.500" fill="black"/>
+<circle cx="13.337" cy="84.719" r="2.250" fill="white"/>
+<circle cx="17.307" cy="69.902" r="4.500" fill="black"/>
+<circle cx="17.307" cy="69.902" r="2.250" fill="white"/>
+<circle cx="23.790" cy="56.000" r="4.500" fill="black"/>
+<circle cx="23.790" cy="56.000" r="2.250" fill="white"/>
+<circle cx="32.588" cy="43.435" r="4.500" fill="black"/>
+<circle cx="43.435" cy="32.588" r="4.500" fill="black"/>
+<circle cx="43.435" cy="32.588" r="2.250" fill="white"/>
+<circle cx="56.000" cy="23.790" r="4.500" fill="black"/>
+<circle cx="69.902" cy="17.307" r="4.500" fill="black"/>
+<circle cx="84.719" cy="13.337" r="4.500" fill="black"/>
+<circle cx="100.000" cy="12.000" r="4.500" fill="black"/>
+<circle cx="100.000" cy="12.000" r="2.250" fill="white"/>
+<circle cx="115.281" cy="13.337" r="4.500" fill="black"/>
+<circle cx="115.281" cy="13.337" r="2.250" fill="white"/>
+<circle cx="130.098" cy="17.307" r="4.500" fill="black"/>
+<circle cx="130.098" cy="17.307" r="2.250" fill="white"/>
+<circle cx="144.000" cy="23.790" r="4.500" fill="black"/>
+<circle cx="156.565" cy="32.588" r="4.500" fill="black"/>
+<circle cx="156.565" cy="32.588" r="2.250" fill="white"/>
+<circle cx="167.412" cy="43.435" r="4.500" fill="black"/>
+<circle cx="167.412" cy="43.435" r="2.250" fill="white"/>
+<circle cx="176.210" cy="56.000" r="4.500" fill="black"/>
+<circle cx="182.693" cy="69.902" r="4.500" fill="black"/>
+<circle cx="182.693" cy="69.902" r="2.250" fill="white"/>
+<circle cx="186.663" cy="84.719" r="4.500" fill="black"/>
+<circle cx="100" cy="100" r="76.0" fill="none" stroke="#bbb" stroke-width="0.3" stroke-dasharray="2 2"/>
+<text x="100" y="196" font-family="sans-serif" font-size="3.5" text-anchor="middle" fill="#888">Scan3D turntable mat · print at 100 % · ring Ø 176 mm · piece inside the dashed circle</text>
+</svg>

@@ -6,6 +6,6 @@
     xmlns:pages="clr-namespace:Scanner.App.Pages"
     Title="Scan3D">
 
-    <ShellContent Title="Scan" ContentTemplate="{DataTemplate pages:ScanPage}" Route="scan" />
+    <ShellContent Title="Scan3D" ContentTemplate="{DataTemplate pages:ModePage}" Route="modes" />
 
 </Shell>
