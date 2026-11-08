@@ -27,5 +27,10 @@ public sealed class PhotoCameraView : View
         Handler?.Invoke(nameof(Stop));
     }
 
+    /// <summary>Raised on the main thread when the camera cannot start, with a sentence for the user.</summary>
+    public event EventHandler<string>? Failed;
+
     internal void Raise(PhotoCapture photo) => PhotoTaken?.Invoke(this, photo);
+
+    internal void RaiseFailed(string message) => Failed?.Invoke(this, message);
 }

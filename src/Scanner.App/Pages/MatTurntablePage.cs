@@ -35,6 +35,11 @@ public sealed class MatTurntablePage : ContentPage
         _startButton.Clicked += OnStartClicked;
         _finish.Clicked += OnFinishClicked;
         _camera.PhotoTaken += OnPhotoTaken;
+        _camera.Failed += (_, message) =>
+        {
+            _status.Text = message;
+            _startButton.IsEnabled = false;
+        };
         var panel = new VerticalStackLayout
         {
             Padding = 12, Spacing = 8, VerticalOptions = LayoutOptions.End,
@@ -60,6 +65,7 @@ public sealed class MatTurntablePage : ContentPage
                 }
                 _ready = true;
             }
+            _startButton.IsEnabled = !_recording && !_finishing;
             _camera.Start();
         }
         catch (Exception ex)

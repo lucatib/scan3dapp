@@ -34,9 +34,14 @@ public static partial class ArPlatform
                 return "Install or update Google Play Services for AR, then come back to the app.";
             }
         }
+        catch (Google.AR.Core.Exceptions.UnavailableUserDeclinedInstallationException ex)
+        {
+            s_installRequested = false; // the next visit to a mode offers the install again
+            return Scanner.App.Droid.ArCoreErrors.Describe(ex);
+        }
         catch (Exception ex)
         {
-            return $"ARCore is not available: {ex.Message}";
+            return Scanner.App.Droid.ArCoreErrors.Describe(ex);
         }
         return null;
     }

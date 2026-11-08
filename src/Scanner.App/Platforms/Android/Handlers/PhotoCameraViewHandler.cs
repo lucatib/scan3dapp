@@ -84,6 +84,9 @@ public sealed class PhotoCameraViewHandler : ViewHandler<PhotoCameraView, GLSurf
         catch (Exception ex)
         {
             Android.Util.Log.Warn("Scan3D", $"Camera failed: {ex}");
+            _session?.Close();
+            _session = null; // the next Start tries again from scratch
+            (((IElementHandler)this).VirtualView as PhotoCameraView)?.RaiseFailed(ArCoreErrors.Describe(ex));
         }
     }
 
