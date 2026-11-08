@@ -1,14 +1,12 @@
 """Scan3D motorised turntable: base, platter with dot inserts, gears, and an iPhone 13 Pro stand.
 
 Run it in Fusion on an empty design (Utilities > Scripts and Add-Ins, or through the Fusion MCP). It switches the
-design to direct modelling, builds every part as its own component, and writes one STL per printed part plus a STEP of
-the whole assembly to ./stl next to this file. All dimensions are millimetres; change the parameters and run it again
-on a new design.
+design to direct modelling and builds every part as its own component; export the meshes from Fusion. All dimensions
+are millimetres; change the parameters and run it again on a new design.
 
 Layout (z up, table at z = 0, platter centre on the origin): motor on +X, electronics on -X, phone stand on -Y.
 """
 import math
-import os
 
 import adsk.core
 import adsk.fusion
@@ -52,6 +50,15 @@ MOTOR_EAR_T = 0.8           # the ears are flush with the shaft face
 MOTOR_SHAFT_OFFSET = 8.0    # shaft to body centre
 MOTOR_EAR_HOLES = 35.0
 
+# --- ESP32-S3-DevKitC-1 -------------------------------------------------------------------------------------------
+# Pins down. It stands on two ledges under its ends (no pins there), its far end under two corner hooks against a
+# stop, its USB end held down by two snap lips; the wall beside the notch stops it when the cable is pulled out.
+ESP_L, ESP_W, ESP_PCB = 69.0, 25.5, 1.6   # board, without the USB-C overhang
+ESP_FREE_END = 5.5          # pin-free length at each end
+ESP_UNDER = 21.0            # clear height under the board for the pins and the Dupont plugs
+ESP_USB_X = -111.4          # the board's USB end, just inside the wall
+USB_NOTCH_W = 24.0          # the opening for the plug; narrower than the board
+
 # --- Phone stand --------------------------------------------------------------------------------------------------
 # Adjustable cradle: a back plate with two slots, and two jaws with a V groove that take the phone's edges, whatever
 # its thickness, so the phone stays centred on the plate. Each jaw is clamped by an M5 bolt (head in the jaw) and a
@@ -68,9 +75,11 @@ GROOVE_DEPTH = 4.0
 JAW_T = 10.0                # jaw, across
 JAW_H = 60.0
 JAW_FRONT = 12.0            # jaw reach in front of the phone's middle plane
-JAW_SLOT = (27.0, 59.5)     # slot end centres, from the plate centre: with the key, jaw faces 53..100 mm apart
-JAW_KEY = (9.0, 5.2, 3.0)   # on the jaw's back, in the slot (length, height, depth): the jaw slides, cannot turn
-PLATE_HALF_W = 66.0
+JAW_SLOT = (28.0, 56.0)     # bolt travel along each slot, from the plate centre: jaw faces 46..102 mm apart
+JAW_FLANGE = 2.8            # the jaw's back is a C that rides on the plate's top and bottom edges: slides, cannot turn
+PLATE_CLEAR = 0.2           # between the C and the plate's edges
+SLIDER_EXT = 14.0           # the C runs on past the jaw's outer side: a longer slider turns less in its clearance
+PLATE_HALF_W = 64.0
 PLATE_T = 6.0
 PLATE_H = 30.0
 FOOT_H = 4.0                # the phone stands on the jaws' feet
@@ -280,9 +289,9 @@ def base(root):
         cyl(mx, -MOTOR_EAR_HOLES / 2, pz0 - 1, MOTOR_PLATE_TOP + 1, 3.3),
         cyl(mx, MOTOR_EAR_HOLES / 2, pz0 - 1, MOTOR_PLATE_TOP + 1, 3.3))
 
-    # ESP32-S3-DevKitC-1 on two risers between its pin rows, USB-C ends at the wall.
-    union(body, box(-106, -102, -9, 9, 0, 17), box(-50, -46, -9, 9, 0, 17))
-    cut(body, box(-120, -105, -16, 16, 12, 28))
+    adds, cuts = esp_holder()
+    union(body, *adds)
+    cut(body, *cuts)
     # 12 mm panel button.
     a = math.radians(150)
     cut(body, cyl_pts((105 * math.cos(a), 105 * math.sin(a), 22), (125 * math.cos(a), 125 * math.sin(a), 22), 12.2))
@@ -293,6 +302,38 @@ def base(root):
         cut(body, cyl_pts((x, -125, 15), (x, -100, 15), 4.3))
         nut = prisms(root, [hexagon(7.1)], 0, 3.7)[0]
         cut(body, frame(nut, (x, -111.6, 15), (1, 0, 0), (0, 0, -1), (0, 1, 0)))
+    return body
+
+
+def esp_holder():
+    """(solids to add, solids to cut) of the ESP32 holder, in base coordinates."""
+    x0, x1, hw = ESP_USB_X, ESP_USB_X + ESP_L, ESP_W / 2
+    h = BASE_FLOOR + ESP_UNDER                  # underside of the board
+    top = h + ESP_PCB
+    adds = [box(x0, x0 + ESP_FREE_END, -hw, hw, 0, h), box(x1 - ESP_FREE_END, x1, -hw, hw, 0, h),
+            box(x1 + 0.3, x1 + 3.3, -hw, hw, 0, top + 1.5)]
+    for sy in (-1, 1):
+        y_hook = sorted((sy * 9.8, sy * hw))     # corners only: the module sits between them
+        adds.append(box(x1 - 1.5, x1 + 0.5, y_hook[0], y_hook[1], top + 0.3, top + 1.5))
+        y_post = sorted((sy * (hw + 0.2), sy * (hw + 2.2)))
+        y_lip = sorted((sy * (hw - 0.5), sy * (hw + 0.5)))
+        adds += [box(x0 + 0.5, x0 + ESP_FREE_END, y_post[0], y_post[1], 0, top + 0.9),
+                 box(x0 + 0.5, x0 + ESP_FREE_END, y_lip[0], y_lip[1], top + 0.3, top + 0.9)]
+    cuts = [box(-BASE_D, x0, -USB_NOTCH_W / 2, USB_NOTCH_W / 2, h - 3, BASE_TOP + 1)]
+    return adds, cuts
+
+
+def esp_dummy():
+    x0, x1, hw = ESP_USB_X, ESP_USB_X + ESP_L, ESP_W / 2
+    h = BASE_FLOOR + ESP_UNDER
+    top = h + ESP_PCB
+    body = union(box(x0, x1, -hw, hw, h, top), box(x1 - 25.5, x1, -9, 9, top, top + 3.2))   # board, WROOM module
+    for yc in (-5.2, 5.2):
+        union(body, box(x0 - 0.8, x0 + 6.5, yc - 4.5, yc + 4.5, top, top + 3.2))             # USB-C, two of them
+    xa, xb = x0 + ESP_FREE_END + 0.5, x1 - ESP_FREE_END - 0.5
+    for sy in (-1, 1):
+        yr = sy * (hw - 1.27)
+        union(body, box(xa, xb, yr - 1.27, yr + 1.27, h - 2.5, h), box(xa, xb, yr - 0.32, yr + 0.32, h - 8.5, h - 2.5))
     return body
 
 
@@ -384,9 +425,14 @@ def jaw(root, sx, gap):
                     FOOT_H, JAW_H)[0]
     # M5 bolt: hex head in a slot open to the groove face, shank out of the back through the plate's slot.
     head = box(min(x_in - sx, xc + sx * 4.1), max(x_in - sx, xc + sx * 4.1), front + 3, front + 6.8, zc - 4.8, zc + 4.8)
-    kl, kh, kd = JAW_KEY
-    union(body, box(xc - kl / 2, xc + kl / 2, front - kd, front + 0.1, zc - kh / 2, zc + kh / 2))
-    cut(body, groove, head, cyl_pts((xc, front - kd - 1, zc), (xc, front + 5, zc), 5.3))
+    x0, x1 = sorted((x_in, x_out + sx * SLIDER_EXT))
+    xe0, xe1 = sorted((x_out - sx * 0.1, x_out + sx * SLIDER_EXT))
+    lo, hi = -PLATE_CLEAR, PLATE_H + PLATE_CLEAR
+    union(body, box(x0, x1, -plate_back(), front + 0.1, hi, hi + JAW_FLANGE),          # over the plate's top edge
+          box(x0, x1, -plate_back(), front + 0.1, lo - JAW_FLANGE, lo),                # under its bottom edge
+          box(x0, x1, front, front + 3, lo - JAW_FLANGE, 0.1),                         # web under the jaw
+          box(xe0, xe1, front, front + 3, lo - JAW_FLANGE, hi + JAW_FLANGE))           # web of the extension
+    cut(body, groove, head, cyl_pts((xc, front - 1, zc), (xc, front + 5, zc), 5.3))
     return move(body, *cradle_origin())
 
 
@@ -497,15 +543,31 @@ def test_motor_plate():
 
 def test_slots():
     """The cradle plate's slot, a jaw's bolt-head slot (printed on its outer face, as the jaw) and the arm's channel."""
-    plate = cut(box(0, 40, 0, 24, 0, PLATE_T), box(10, 30, 9.3, 14.7, -1, PLATE_T + 1),
-                cyl(10, 12, -1, PLATE_T + 1, 5.4), cyl(30, 12, -1, PLATE_T + 1, 5.4))
-    # Jaw section, jaw coordinates (face at x = 0, outer side at x = JAW_T, back at y = -10, bolt at z = 15).
-    kl, kh, kd = JAW_KEY
-    jaw_cut = union(box(0, JAW_T, -10, 10, 5, 25), box(JAW_T / 2 - kl / 2, JAW_T / 2 + kl / 2, -10 - kd, -9.9, 15 - kh / 2, 15 + kh / 2))
-    cut(jaw_cut, box(-1, JAW_T / 2 + 4.1, -7, -3.2, 15 - 4.8, 15 + 4.8), cyl_pts((JAW_T / 2, -11 - kd, 15), (JAW_T / 2, -5, 15), 5.3))
-    jaw_piece = frame(jaw_cut, (50, 15, JAW_T), (0, 0, -1), (0, 1, 0), (1, 0, 0))
-    arm_piece = cut(box(80, 110, 0, 30, 0, 10), box(91.75, 98.25, 5, 25, -1, 11), box(89.8, 100.2, -1, 31, -1, 4.5))
+    zc = PLATE_H / 2
+    plate = cut(box(0, 40, 0, PLATE_H, 0, PLATE_T), box(10, 30, zc - 2.7, zc + 2.7, -1, PLATE_T + 1),
+                cyl(10, zc, -1, PLATE_T + 1, 5.4), cyl(30, zc, -1, PLATE_T + 1, 5.4))
+    # A 10 mm slice of a jaw, jaw coordinates (face at x = 0, outer side at x = JAW_T, plate between y = -16 and -10).
+    front, back = -(PHONE_T_MAX / 2 + 1), -plate_back()
+    lo, hi = -PLATE_CLEAR, PLATE_H + PLATE_CLEAR
+    jaw_cut = union(box(0, JAW_T, front, 10, lo - JAW_FLANGE, hi + JAW_FLANGE),
+                    box(0, JAW_T, back, front + 0.1, hi, hi + JAW_FLANGE), box(0, JAW_T, back, front + 0.1, lo - JAW_FLANGE, lo))
+    cut(jaw_cut, box(-1, JAW_T / 2 + 4.1, front + 3, front + 6.8, zc - 4.8, zc + 4.8),
+        cyl_pts((JAW_T / 2, front - 1, zc), (JAW_T / 2, front + 5, zc), 5.3))
+    jaw_piece = frame(jaw_cut, (50, 20, JAW_T), (0, 0, -1), (0, 1, 0), (1, 0, 0))
+    arm_piece = move(cut(box(80, 110, 0, 30, 0, 10), box(91.75, 98.25, 5, 25, -1, 11), box(89.8, 100.2, -1, 31, -1, 4.5)),
+                     15, 0, 0)
     return [plate, jaw_piece, arm_piece]
+
+
+def test_esp():
+    """The ESP32 holder on a piece of floor, with a straight piece of wall and its notch."""
+    adds, cuts = esp_holder()
+    x0, x1 = ESP_USB_X, ESP_USB_X + ESP_L
+    wall_in = x0 - 0.5
+    body = union(box(wall_in - BASE_WALL, x1 + 6, -18, 18, 0, BASE_FLOOR),
+                 box(wall_in - BASE_WALL, wall_in, -18, 18, 0, BASE_TOP), *adds)
+    cut(body, *cuts)
+    return move(body, -(wall_in - BASE_WALL), 0, 0)
 
 
 def test_parts(root):
@@ -517,6 +579,7 @@ def test_parts(root):
         ("Prova pignoni", test_pinions(root)),
         ("Prova motore", [move(test_motor_plate(), 24, 27, 0)]),
         ("Prova asole", test_slots()),
+        ("Prova ESP32", [test_esp()]),
     ]
     y = -150.0
     for _, bodies in parts:
@@ -555,25 +618,10 @@ def run(_context):
         ("Ganascia destra", [jaw(root, 1, gap)]),
         ("Pomelli ganasce", [jaw_knob(root, -1, gap), jaw_knob(root, 1, gap)]),
     ]
-    reference = [("RIF motore 28BYJ-48", [motor_dummy()]), (f"RIF {name}", [phone_dummy(w, t, h, bump)])]
+    reference = [("RIF motore 28BYJ-48", [motor_dummy()]), ("RIF ESP32-S3-DevKitC-1", [esp_dummy()]),
+                 (f"RIF {name}", [phone_dummy(w, t, h, bump)])]
 
-    out_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "stl")
-    os.makedirs(out_dir, exist_ok=True)
-    em = design.exportManager
-    for name, bodies in printed:
-        occ = add_part(root, name, bodies)
-        opts = em.createSTLExportOptions(occ, os.path.join(out_dir, name.replace(" ", "_").lower() + ".stl"))
-        opts.meshRefinement = adsk.fusion.MeshRefinementSettings.MeshRefinementHigh
-        em.execute(opts)
-    for name, bodies in reference:
+    for name, bodies in printed + reference + test_parts(root):
         add_part(root, name, bodies)
-    em.execute(em.createSTEPExportOptions(os.path.join(out_dir, "turntable.step"), root))
-    test_dir = os.path.join(out_dir, "prove")
-    os.makedirs(test_dir, exist_ok=True)
-    for name, bodies in test_parts(root):
-        occ = add_part(root, name, bodies)
-        opts = em.createSTLExportOptions(occ, os.path.join(test_dir, name.replace(" ", "_").lower() + ".stl"))
-        opts.meshRefinement = adsk.fusion.MeshRefinementSettings.MeshRefinementHigh
-        em.execute(opts)
     print(f"{len(printed)} printed parts, {len(filled)} filled + {len(rings)} ring inserts; "
-          f"stand post at y = {py:.1f} mm; files in {out_dir}")
+          f"stand post at y = {py:.1f} mm")
