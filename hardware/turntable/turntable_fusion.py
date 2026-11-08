@@ -14,7 +14,6 @@ import adsk.fusion
 
 # --- Platter and mat ----------------------------------------------------------------------------------------------
 PLATTER_D = 240.0
-PLATTER_Z0 = 37.0           # underside
 PLATTER_T = 8.0             # top at PLATTER_Z0 + PLATTER_T
 RING_R = 88.0               # TurntableMat.RingRadius
 DOT_D = 9.0                 # TurntableMat.DotRadius * 2
@@ -30,27 +29,31 @@ AXLE_HEAD_AF = 13.2         # hex pocket for the M8 bolt's head, pressed in
 SHAFT_BORE = (5.1, 3.1)     # pinion's double-D bore on the 28BYJ-48 shaft (5 mm, flats 3 mm apart)
 MOTOR_BODY_HOLE = 28.8      # the 28BYJ-48 body (28 mm) hangs through the plate
 BEARING_STACK = 14.0        # two 608 on top of each other
-HUB_Z0 = 21.0
 GEAR_MODULE = 1.0
 GEAR_TEETH = 64
 PINION_TEETH = 16
 GEAR_BACKLASH = 0.15        # tooth thickness taken off each gear, at the pitch circle
-GEAR_Z0 = 28.5              # platter gear: GEAR_Z0 .. PLATTER_Z0
-PINION_Z = (29.7, 36.0)       # only on the shaft's flats (29.6 .. 35.6 on the motor model)
 CENTRE_EXTRA = 0.1          # added to the theoretical centre distance
 
 # --- Base ---------------------------------------------------------------------------------------------------------
 BASE_D = 230.0
 BASE_WALL = 2.4
 BASE_FLOOR = 3.0
-BASE_TOP = 35.0
 
 # --- 28BYJ-48 -----------------------------------------------------------------------------------------------------
-MOTOR_PLATE_TOP = 25.0      # the ears rest here, the body hangs below
+MOTOR_PLATE_TOP = 19.5      # the ears rest here; the body hangs below, through the floor, 0.7 mm above the table
+MOTOR_FLATS = (4.6, 10.6)   # the shaft's flats above the plate (motor model)
 MOTOR_EAR_T = 0.8           # the ears are flush with the shaft face
 MOTOR_SHAFT_OFFSET = 8.0    # shaft to body centre
 MOTOR_EAR_HOLES = 35.0
 MOTOR_HOUSING = (31.0, 9.5)  # blue cover and wire exit, from the body's centre (reach, half width): the plate's notch
+
+# --- Heights, all from the motor: pinion on the shaft's flats, platter just above it -----------------------------
+PINION_Z = (MOTOR_PLATE_TOP + MOTOR_FLATS[0] + 0.1, MOTOR_PLATE_TOP + MOTOR_FLATS[1] + 0.4)
+PLATTER_Z0 = PINION_Z[1] + 1.0      # platter underside; its top is PLATTER_Z0 + PLATTER_T
+GEAR_Z0 = PINION_Z[0] - 0.5         # platter gear: GEAR_Z0 .. PLATTER_Z0
+HUB_Z0 = PLATTER_Z0 - 2 - BEARING_STACK   # bearings below a 2 mm lip
+BASE_TOP = PLATTER_Z0 - 2           # the wall stops under the platter's rim
 
 # Reference models (escornabot/3dmodel, MIT, in ./models), placed in the design by the script.
 MODELS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "models")
@@ -328,13 +331,14 @@ def shaft_x():
 def base(root):
     r_in = BASE_D / 2 - BASE_WALL
     body = cut(cyl(0, 0, 0, BASE_TOP, BASE_D), cyl(0, 0, BASE_FLOOR, BASE_TOP + 1, 2 * r_in))
-    # Axle boss: M8x35 hex bolt from below, its head pressed into the hex; the 608 inner races sit on the ring.
+    # Axle boss: M8x30 hex bolt from below, its head pressed into the hex; the 608 inner races sit on the ring.
     union(body, cyl(0, 0, 0, HUB_Z0 - 1, 20), cyl(0, 0, HUB_Z0 - 1, HUB_Z0, 11.5))
     cut(body, cyl(0, 0, -1, HUB_Z0 + 1, 8.4), prisms(root, [hexagon(AXLE_HEAD_AF)], -1, 6.5)[0])
 
     # Motor mount: plate with the body hanging through it, side walls down to the floor, merged into the wall.
     mx = shaft_x() + MOTOR_SHAFT_OFFSET
     pz0 = MOTOR_PLATE_TOP - 4
+    cut(body, cyl(mx, 0, -1, BASE_FLOOR + 1, MOTOR_BODY_HOLE))      # the body goes down through the floor
     union(body, box(28, 111, -27, 27, pz0, MOTOR_PLATE_TOP),
           box(28, 111, -27, -24, 0, pz0), box(28, 111, 24, 27, 0, pz0))
     cut(body, cyl(mx, 0, pz0 - 1, MOTOR_PLATE_TOP + 1, MOTOR_BODY_HOLE),
