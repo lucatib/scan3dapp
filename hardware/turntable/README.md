@@ -28,6 +28,7 @@ print the real parts.
 | Prova pignoni | pinion on the motor shaft: snug, no wobble, no cracking | bore Ø 5.0 / 5.1 / 5.2, flats 3.0 / 3.1 / 3.2 | `SHAFT_BORE` |
 | Prova motore | the 28BYJ-48 drops through, its blue housing in the notch, M3 screws in the ears | one size (Ø 28.8) | `MOTOR_BODY_HOLE` |
 | Prova asole | the jaw slice slides along the plate piece, its C over both edges, without wobbling; the M5 head sits in the jaw; the M6 head slides in the arm's channel and the bolt in its slot | one size each | `PLATE_CLEAR` |
+| Prova touch | the module slides in and stays; a finger on the ring outside triggers it through the 2 mm wall | one size | `TOUCH_WALL` |
 | Prova ULN2003 | the board's four holes on the standoffs, M3 self-tapping screws biting | 30.2 × 26.4 mm hole spacing, the model's | `ULN_HOLES`, `ULN_PILOT` |
 | Prova ESP32 | the board presses down past the four lips onto the ribs, its far end against the stop, and does not move when you plug and pull the cable | one size | `ESP_L`, `ESP_W` |
 
@@ -72,7 +73,7 @@ marks where the piece must stand. Insert fit is `INSERT_CLEAR` (0.15 mm radial).
 | 1 | M6 × 25 hex bolt + M6 nut | tower to the arm (head in the arm's channel, nut in the M6 knob) |  |
 | 1 | M5 × 35 screw + M5 nut | tilt axis (nut in the M5 knob) |  |
 | 2 | M5 × 20 hex bolt + M5 nut | jaws (head in the jaw, nut in the jaw knob) |  |
-| 1 | 12 mm momentary panel button (normally open, wall up to ~5 mm) | start/stop through the base wall, nut on the flat seat inside |  |
+| 1 | TTP223 capacitive touch module, 15 × 11 mm, 2.5–5.5 V | start/stop, behind the base wall | [Gebildet, Amazon.it](https://www.amazon.it/dp/B0FPQZN4N9): €6.99 for 30 |
 | 1 | 1/4"-20 hex nut (7/16" across flats) | tripod adapter (optional) |  |
 | ~8 | Dupont female–female jumper wires | ESP32 to ULN2003 (IN1–IN4, 5 V, GND) and the button |  |
 | 1 | USB-C cable and 5 V USB supply | powers everything through the ESP32 |  |
@@ -104,19 +105,26 @@ PLA or PETG. Volumes are of the solid parts as modelled; with the usual walls an
 | GPIO 4, 5, 6, 7 | IN1, IN2, IN3, IN4 |
 | 5V | + (leave the jumper on) |
 | GND | − |
-| GPIO 15 / GND | button (internal pull-up) |
+| GPIO 15, 3V3, GND | TTP223 touch module: I/O, VCC, GND (pad A soldered, see below) |
 
 The motor plugs into the board's white connector. Power comes from the ESP32's USB-C.
 
-## Start/stop button
+## Start/stop touch
 
-![Start/stop button](pulsante.png)
+![Start/stop touch](pulsante.png)
 
-To run the platter without the app (no Bluetooth or serial), a 12 mm momentary panel button goes through the base
-wall at 150°, beside the ESP32, 22 mm up: under the platter's rim but within reach from the side. Inside the wall a
-flat seat (4.5 mm thick at the hole) takes its nut. Its two tags go to GPIO 15 and GND (see Wiring); the firmware
-starts or stops the platter on a short press, with a ramp, and reverses it on a long press. Move it with
-`BUTTON_ANGLE` and `BUTTON_Z`.
+To run the platter without the app (no Bluetooth or serial), a TTP223 capacitive touch module (15 × 11 mm) stands
+behind the base wall at 150°, beside the ESP32: no hole. Behind it the wall is thinned to 2 mm with a flat face for
+the module's pad, and a ring engraved outside shows where to touch. The module slides down from the top between two
+rails, its pad against the flat face, lips behind its edges and a ledge under it. Solder its three wires (VCC, I/O,
+GND) at the bottom edge.
+
+- Power it from the ESP32's **3V3**, not 5 V: its output goes straight into GPIO 15, which takes 3.3 V at most.
+- **Solder pad A** (active low): the output then goes low while touched, which is what the firmware's button input
+  expects (GPIO 15, short touch start/stop, long touch reverse). Leave pad B open: momentary, not toggle.
+- `Prova touch` is a piece of the 2 mm wall with the holder, to check the touch works through your print.
+
+Move it with `TOUCH_ANGLE` and `TOUCH_Z`.
 
 ## Motor and driver
 

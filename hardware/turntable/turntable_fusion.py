@@ -72,10 +72,10 @@ ULN_HOLES = (30.2, 26.4)    # mounting holes (Ø3), measured on the model
 ULN_STANDOFF = 5.0          # above the floor, clear of the solder joints
 ULN_PILOT = 2.5             # M3 self-tapping screw into the standoff
 
-# --- Start/stop button ----------------------------------------------------------------------------------------------
-BUTTON_ANGLE, BUTTON_Z = 150.0, 22.0   # where it goes through the wall (from +X, counter-clockwise), centre height
-BUTTON_HOLE = 12.2          # 12 mm momentary panel button
-BUTTON_SEAT_R = 110.5       # its nut tightens on this flat face inside the wall: 4.5 mm to the outside
+# --- Start/stop: TTP223 capacitive touch module behind the wall ------------------------------------------------------
+TOUCH_ANGLE, TOUCH_Z = 150.0, 18.0     # where (from +X, counter-clockwise) and the module's centre height
+TOUCH_WALL = 2.0            # the wall is thinned to this behind the module, with a flat face for its pad
+TTP223 = (11.0, 15.0, 1.6)  # module width, height (stood up, pins at the bottom), thickness
 
 # --- ESP32-S3 devkit (2 x USB-C) ------------------------------------------------------------------------------
 # Measured on the real model, ESP32-S3-WROOM-1_devkit_2xUSBC in the Scan3DTable Fusion project: PCB 57 x 28.3 x 1.5,
@@ -265,7 +265,7 @@ COLORS = [
     ("Piatto", (240, 240, 235)), ("Inserti", (20, 20, 20)), ("Base", (90, 90, 95)),
     ("Pignone", (230, 120, 30)), ("Pomell", (230, 120, 30)), ("Prova", (230, 120, 30)),
     ("Supporto", (200, 60, 60)), ("RIF iPhone", (40, 40, 50)), ("RIF cuscinetti", (190, 190, 200)),
-    ("RIF vite", (150, 150, 160)), ("Dado", (230, 120, 30)), ("RIF pulsante", (200, 40, 40)),
+    ("RIF vite", (150, 150, 160)), ("Dado", (230, 120, 30)), ("RIF touch", (40, 120, 200)),
     ("Braccio", (70, 110, 170)), ("Torre", (70, 110, 170)), ("Ganascia", (70, 110, 170)), ("Attacco", (70, 110, 170)),
 ]
 
@@ -369,10 +369,10 @@ def base(root):
             x, y = ux + sx * ULN_HOLES[0] / 2, uy + sy * ULN_HOLES[1] / 2
             union(body, cyl(x, y, 0, BASE_FLOOR + ULN_STANDOFF, 6.5))
             cut(body, cyl(x, y, BASE_FLOOR + 0.8, BASE_FLOOR + ULN_STANDOFF + 1, ULN_PILOT))
-    # Start/stop: a 12 mm panel button through the wall, its nut on a flat seat inside.
-    seat, hole = button_mount()
-    union(body, seat)
-    cut(body, hole)
+    # Start/stop: the touch module stands in a holder behind the thinned wall; a ring marks where to touch outside.
+    adds, cuts = touch_mount()
+    union(body, *[radial(b, TOUCH_ANGLE) for b in adds])
+    cut(body, *[radial(b, TOUCH_ANGLE) for b in cuts])
 
     # Flat pad for the stand's arm on -Y: two M4 screws, nuts from inside.
     union(body, box(-25, 25, -119, -108, 0, 30))
@@ -389,21 +389,37 @@ def radial(t, angle):
     return frame(t, (0, 0, 0), (math.cos(a), math.sin(a), 0), (-math.sin(a), math.cos(a), 0), (0, 0, 1))
 
 
-def button_mount():
-    """(seat to add, hole to cut) for the start/stop button, in base coordinates."""
-    r_wall = BASE_D / 2 - BASE_WALL
-    seat = box(BUTTON_SEAT_R, r_wall + 0.5, -10, 10, BUTTON_Z - 9, min(BUTTON_Z + 9, BASE_TOP))
-    hole = cyl_pts((BUTTON_SEAT_R - 5, 0, BUTTON_Z), (BASE_D / 2 + 5, 0, BUTTON_Z), BUTTON_HOLE)
-    return radial(seat, BUTTON_ANGLE), radial(hole, BUTTON_ANGLE)
+def touch_mount(wall_out=None):
+    """(solids to add, solids to cut) of the touch module's holder, with +X radial and the wall's outside at wall_out:
+    a flat face TOUCH_WALL inside it for the module's pad, two rails with lips behind the module's edges, a ledge
+    under it (it slides in from the top), and a ring engraved outside over the pad."""
+    r_out = BASE_D / 2 if wall_out is None else wall_out
+    w, h, t = TTP223
+    face = r_out - TOUCH_WALL
+    z0 = TOUCH_Z - h / 2
+    hw = w / 2 + 0.3
+    back = face - t - 0.1
+    adds = [box(back - 1.2, face + 0.6, -hw - 2.4, hw + 2.4, z0 - 1.5, z0)]                       # ledge
+    for sy in (-1, 1):
+        rail = sorted((sy * hw, sy * (hw + 2.4)))
+        lip = sorted((sy * (hw - 0.9), sy * hw))
+        adds += [box(back - 1.2, face + 0.6, rail[0], rail[1], z0 - 1.5, z0 + h),
+                 box(back - 1.2, back, lip[0], lip[1], z0 - 1.5, z0 + h)]
+    ring = cut(cyl_pts((r_out - 0.4, 0, TOUCH_Z), (r_out + 2, 0, TOUCH_Z), 12),
+               cyl_pts((r_out - 1, 0, TOUCH_Z), (r_out + 3, 0, TOUCH_Z), 10))
+    # Flat face: shaves the curved inside of the wall up to its top, so the module slides down onto the ledge.
+    cuts = [box(face - 1.0, face, -hw, hw, z0, z0 + 50), ring]
+    return adds, cuts
 
 
-def button_dummy():
-    """A generic 12 mm momentary panel button: flange and plunger outside, threaded body, nut and tags inside."""
-    r, z = BASE_D / 2, BUTTON_Z
-    body = union(cyl_pts((r, 0, z), (r + 2, 0, z), 15), cyl_pts((r + 2, 0, z), (r + 4, 0, z), 9),
-                 cyl_pts((r - 19, 0, z), (r, 0, z), 11.9), cyl_pts((BUTTON_SEAT_R - 2.5, 0, z), (BUTTON_SEAT_R, 0, z), 15),
-                 box(r - 23, r - 19, -2.5, -1.5, z - 1.5, z + 1.5), box(r - 23, r - 19, 1.5, 2.5, z - 1.5, z + 1.5))
-    return radial(body, BUTTON_ANGLE)
+def touch_dummy():
+    """The TTP223 module: PCB with its pad against the flat face, the chip on the back."""
+    w, h, t = TTP223
+    face = BASE_D / 2 - TOUCH_WALL
+    z0 = TOUCH_Z - h / 2
+    body = union(box(face - t, face, -w / 2, w / 2, z0, z0 + h),
+                 box(face - t - 1.1, face - t, -1.5, 1.5, z0 + 3, z0 + 6))
+    return radial(body, TOUCH_ANGLE)
 
 
 def esp_holder():
@@ -755,6 +771,15 @@ def test_uln():
     return move(body, hx + 5, hy + 5, 0)
 
 
+def test_touch():
+    """A straight piece of the thinned wall with the touch module's holder, to try the touch through it."""
+    adds, cuts = touch_mount(wall_out=0.0)
+    z0 = TOUCH_Z - TTP223[1] / 2
+    body = union(box(-BASE_WALL, 0, -12, 12, z0 - 5, z0 + TTP223[1] + 3), *adds)
+    cut(body, *cuts)
+    return move(body, BASE_WALL + 10, 12, 0)
+
+
 def test_parts(root):
     """(name, bodies), laid out in a column beside the assembly."""
     parts = [
@@ -766,6 +791,7 @@ def test_parts(root):
         ("Prova asole", test_slots()),
         ("Prova ESP32", [test_esp()]),
         ("Prova ULN2003", [test_uln()]),
+        ("Prova touch", [test_touch()]),
     ]
     y = -150.0
     for _, bodies in parts:
@@ -806,7 +832,7 @@ def run(_context):
         ("Pomelli ganasce", [jaw_knob(root, -1, gap), jaw_knob(root, 1, gap)]),
         ("Attacco treppiede", [tripod_adapter(root, tripod_axis_shown())]),
     ]
-    reference = [(f"RIF {name}", [phone_dummy(w, t, h, bump)]), ("RIF pulsante 12 mm", [button_dummy()]), ("RIF cuscinetti 608ZZ", bearing_dummies()),
+    reference = [(f"RIF {name}", [phone_dummy(w, t, h, bump)]), ("RIF touch TTP223", [touch_dummy()]), ("RIF cuscinetti 608ZZ", bearing_dummies()),
                  ("RIF vite M8x30", [axle_dummy(root)])]
 
     for name, bodies in printed + reference + test_parts(root):
