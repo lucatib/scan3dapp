@@ -246,6 +246,33 @@ def dots():
     return out
 
 
+# Display colours, by component name (the first prefix that matches); matte plastic.
+COLORS = [
+    ("Piatto", (240, 240, 235)), ("Inserti", (20, 20, 20)), ("Base", (90, 90, 95)),
+    ("Pignone", (230, 120, 30)), ("Pomell", (230, 120, 30)), ("Prova", (230, 120, 30)),
+    ("Supporto", (200, 60, 60)), ("RIF iPhone", (40, 40, 50)),
+    ("Braccio", (70, 110, 170)), ("Torre", (70, 110, 170)), ("Ganascia", (70, 110, 170)), ("Attacco", (70, 110, 170)),
+]
+
+
+def appearance(name):
+    """A matte plastic appearance in the design for the component name, created on first use."""
+    rgb = next((c for prefix, c in COLORS if name.startswith(prefix)), None)
+    if rgb is None:
+        return None
+    design = adsk.fusion.Design.cast(app.activeProduct)
+    key = "Scan3D %d,%d,%d" % rgb
+    ap = design.appearances.itemByName(key)
+    if ap is None:
+        src = app.materialLibraries.itemByName("Fusion Appearance Library").appearances.itemByName("Plastic - Matte (White)")
+        ap = design.appearances.addByCopy(src, key)
+        for i in range(ap.appearanceProperties.count):
+            prop = ap.appearanceProperties.item(i)
+            if isinstance(prop, adsk.core.ColorProperty) and prop.name == "Color":
+                prop.value = adsk.core.Color.create(rgb[0], rgb[1], rgb[2], 255)
+    return ap
+
+
 def add_part(root, name, bodies):
     occ = root.occurrences.addNewComponent(adsk.core.Matrix3D.create())
     comp = occ.component
@@ -253,6 +280,9 @@ def add_part(root, name, bodies):
     for i, b in enumerate(bodies):
         body = comp.bRepBodies.add(b)
         body.name = name if len(bodies) == 1 else f"{name} {i + 1}"
+    ap = appearance(name)
+    if ap:
+        occ.appearance = ap
     return occ
 
 
