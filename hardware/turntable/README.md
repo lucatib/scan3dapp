@@ -56,7 +56,7 @@ The motor plugs into the board's white connector. Power comes from the ESP32's U
 
 ## Firmware
 
-[firmware/](firmware) is a PlatformIO project on the pioarduino platform 55.03.312 (Arduino core 3.3) for the
+[firmware/](firmware) is a PlatformIO project on the latest stable pioarduino platform (Arduino core 3.x) for the
 ESP32-S3-DevKitC-1. Open the folder in the pioarduino IDE and use Upload, or from that folder run
 `~/.pioarduino/penv/Scripts/pio run -t upload` and then `... pio device monitor` (with `PLATFORMIO_CORE_DIR` set to
 `~/.pioarduino`). Use the board's UART ("COM") USB-C port, both to flash and for the serial commands.
