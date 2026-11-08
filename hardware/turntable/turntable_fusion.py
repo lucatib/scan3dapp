@@ -14,7 +14,7 @@ import adsk.fusion
 
 # --- Platter and mat ----------------------------------------------------------------------------------------------
 PLATTER_D = 240.0
-PLATTER_T = 8.0             # top at PLATTER_Z0 + PLATTER_T
+PLATTER_T = 6.0             # top at PLATTER_Z0 + PLATTER_T; 2.4 mm inserts, 3 mm over the axle pocket
 RING_R = 88.0               # TurntableMat.RingRadius
 DOT_D = 9.0                 # TurntableMat.DotRadius * 2
 HOLE_D = 4.5                # TurntableMat.HoleRadius * 2
