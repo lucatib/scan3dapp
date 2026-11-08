@@ -76,7 +76,8 @@ ULN_PILOT = 2.5             # M3 self-tapping screw into the standoff
 TOUCH_ANGLE, TOUCH_Z = 150.0, 18.0     # where (from +X, counter-clockwise) and the module's centre height
 TOUCH_WALL = 2.0            # the wall is thinned to this behind the module, with a flat face for its pad
 TTP223 = (11.0, 15.0, 1.6)  # module width, height (stood up, pins at the bottom), thickness
-TOUCH_LABEL = ("Start/Stop", 5.0, 0.6)   # engraved to the right of the ring (seen from outside): text, height, depth
+TOUCH_LABEL = ("Start/Stop", 7.0, 1.0)   # engraved to the right of the ring (seen from outside): text, height, depth
+LABEL_CLEAR = 0.1           # the printed letters are this much smaller all round than the engraving
 
 # --- ESP32-S3 devkit (2 x USB-C) ------------------------------------------------------------------------------
 # Measured on the real model, ESP32-S3-WROOM-1_devkit_2xUSBC in the Scan3DTable Fusion project: PCB 57 x 28.3 x 1.5,
@@ -266,7 +267,7 @@ COLORS = [
     ("Piatto", (240, 240, 235)), ("Inserti", (20, 20, 20)), ("Base", (90, 90, 95)),
     ("Pignone", (230, 120, 30)), ("Pomell", (230, 120, 30)), ("Prova", (230, 120, 30)),
     ("Supporto", (200, 60, 60)), ("RIF iPhone", (40, 40, 50)), ("RIF cuscinetti", (190, 190, 200)),
-    ("RIF vite", (150, 150, 160)), ("Dado", (230, 120, 30)), ("RIF touch", (40, 120, 200)),
+    ("RIF vite", (150, 150, 160)), ("Dado", (230, 120, 30)), ("RIF touch", (40, 120, 200)), ("Scritta", (240, 240, 235)),
     ("Braccio", (70, 110, 170)), ("Torre", (70, 110, 170)), ("Ganascia", (70, 110, 170)), ("Attacco", (70, 110, 170)),
 ]
 
@@ -449,6 +450,26 @@ def touch_label(root):
         tbm.booleanOperation(b, shell, INTER)
         out.append(b)
     return out
+
+
+def offset_sides(root, temps, dist):
+    """Moves the side faces (normals in XY) of flat temporary bodies by dist along their normals; returns copies."""
+    bodies = [root.bRepBodies.add(t) for t in temps]
+    faces = [f for b in bodies for f in b.faces
+             if isinstance(f.geometry, adsk.core.Plane) is False or abs(f.geometry.normal.z) < 0.5]
+    faces = [f for f in faces if not (isinstance(f.geometry, adsk.core.Plane) and abs(f.geometry.normal.z) > 0.5)]
+    root.features.offsetFacesFeatures.add(
+        root.features.offsetFacesFeatures.createInput(faces, adsk.core.ValueInput.createByReal(dist / 10)))
+    out = [tbm.copy(b) for b in bodies]
+    for b in bodies:
+        b.deleteMe()
+    return out
+
+
+def label_letters(root):
+    """The engraving's letters, flat and LABEL_CLEAR smaller all round, to print in another colour and glue in."""
+    text, height, depth = TOUCH_LABEL
+    return offset_sides(root, text_prisms(root, text, height, depth), -LABEL_CLEAR)
 
 
 def touch_dummy():
@@ -862,6 +883,7 @@ def run(_context):
         ("Pomello M5", [knob5]),
     ]
     printed.append(("Dado asse", [axle_nut(root)]))
+    printed.append(("Scritta Start/Stop", [move(b, TESTS_X, -190, 0) for b in label_letters(root)]))
     name, w, t, h, bump = PHONES[0]
     gap = jaw_gap(w, t)
     printed += [

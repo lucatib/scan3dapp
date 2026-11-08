@@ -49,6 +49,7 @@ face. Also try the M5 and M6 nuts in one Pomello M5 and Pomello M6, which you ne
 | Ganascia sinistra, Ganascia destra | any | outer face on the bed, so the V groove prints without supports |
 | Pomello M6, Pomello M5 | any | nut pocket up; press the nut in |
 | Pomelli ganasce (2) | any | the M5 knob again, one per jaw |
+| Scritta Start/Stop | contrasting (optional) | flat, 0.4 mm nozzle, 0.2 mm layers; every stroke is at least 0.8 mm wide. Glue into the engraving |
 | Dado asse | any | collar down, 100 % infill: the M8 bolt cuts its thread in it |
 | Attacco treppiede | any | block on the bed, nut slot on the side, no supports (optional, see below) |
 
@@ -115,8 +116,11 @@ The motor plugs into the board's white connector. Power comes from the ESP32's U
 
 To run the platter without the app (no Bluetooth or serial), a TTP223 capacitive touch module (15 × 11 mm) stands
 behind the base wall at 150°, beside the ESP32: no hole. Behind it the wall is thinned to 2 mm with a flat face for
-the module's pad, and a ring engraved outside shows where to touch, with "Start/Stop" engraved to its right (5 mm bold, 0.6 mm deep,
-`TOUCH_LABEL`).
+the module's pad, and a ring engraved outside shows where to touch, with "Start/Stop" engraved to its right (7 mm bold, 1 mm deep,
+`TOUCH_LABEL`). The letters can also be printed in another colour (`Scritta Start/Stop`, 0.1 mm smaller all round,
+1 mm thick, flat: they follow the wall's curve as you press them in) and glued into the engraving.
+
+![Start/Stop letters](scritta.png)
 
 ![Start/Stop engraving](start_stop.png)
 
