@@ -17,6 +17,7 @@ The app opens on a mode selection page; each way of scanning is its own mode, of
 | **Handheld · AR** | Android (ARCore depth) | Photo stereo in a TSDF, space carving | ARCore, refined from the photos |
 | **Handheld · LiDAR** | iPhone Pro (LiDAR) | ARKit's scene mesh, cut around the target above the table | ARKit |
 | **Turntable · TrueDepth** | iPhone (front TrueDepth) | TrueDepth depth in a 1 mm TSDF | ICP of each depth frame against the piece fused so far |
+| **Turntable · LiDAR** | iPhone Pro (rear camera + LiDAR), on the [motorised turntable](hardware/turntable) | LiDAR depth in a 1.5 mm TSDF, in the platter's frame | The platter's dot ring in every camera image; ICP while it is hidden |
 | **Turntable · printed mat** | Android | Photo stereo in a TSDF, as handheld | The dots of a printed mat, in every photo (exact, true scale) |
 
 The reconstruction pattern below is the handheld Android mode's, the one tested on a phone. The iPhone modes and the
@@ -92,8 +93,8 @@ If the photos give no usable surface, the scan falls back to the ARCore depth cl
 - Every scan is saved as a session folder on the device (see [Session format](#session-format)).
 
 - **iPhone** (`Platforms/iOS`, built only on a Mac or with a paired Mac): the LiDAR handheld scan (ARKit scene
-  mesh plus LiDAR depth and photos into the same session format, photo-patch texture), the TrueDepth turntable, and a
-  SceneKit preview of the model. Compiles; not yet run on a device.
+  mesh plus LiDAR depth and photos into the same session format, photo-patch texture), the TrueDepth and LiDAR
+  turntables, and a SceneKit preview of the model. Compiles; not yet run on a device.
 - **Printed-mat turntable** on Android: the mat is posed in every photo, a photo is kept every 5° of turn, and Finish
   runs the voxel reconstruction and texturing on them. Not yet run on a device.
 
@@ -111,12 +112,20 @@ The Windows target builds, but its views only show a placeholder message: scanni
   finds dark disc-shaped blobs, the ellipse most lie on, their order around it and, from runs of 7 or more, which dots
   they are; a homography and Gauss-Newton on the reprojection give the camera pose in the mat's frame, in metres. The
   piece stands inside the dashed circle.
+- **LiDAR** (`LidarMatTurntable`, iPhone): the phone stands still on the stand of the
+  [motorised turntable](hardware/turntable), back towards the platter, whose black inserts are the mat's dot ring.
+  AVFoundation's LiDAR depth camera gives synchronized depth and camera images; each image is posed from the ring
+  (as the printed mat), so the depth goes straight into a TSDF in the platter's frame, the platter and everything
+  beyond 10 cm of its axis cut away. A ring pose whose platter the depth puts more than 6 mm off y = 0 is refused (a
+  misread ring). While the ring is hidden, ICP against the points fused so far carries the pose on from the last
+  one, predicted by the turn rate; the next ring pose removes any drift. A photo every 10° (ring poses only)
+  textures the model.
 
 ### Libraries (platform-independent, `net10.0`, unit tested)
 | Project | Contents |
 |---|---|
 | `Scanner.Capture` | `DepthFrame` / `CameraIntrinsics` / `PhotoView`, ARCore pose and intrinsics conversions, depth back-projection, voxel point accumulator, support-plane fit, object isolation, PLY read/write, session writer/reader, binary frame codec, textured model OBJ/MTL read/write, `.scan` zip export, live-scan state machine |
-| `Scanner.Core` | **Turntable**: printed-mat code, dot detection and pose (`TurntableMat`, `MatDetector`, `MatPose`, `MatTurntableScan`), ICP and TrueDepth fusion (`RigidAligner`, `TurntableFusion`). **Sensor mesh**: cutting the piece from a LiDAR mesh (`SensorMesh`). **Photogrammetry**: corners, guided matching, tracks, triangulation, bundle adjustment, pose refinement (`PoseRefiner`, `LivePoses`), plane-sweep stereo, depth-map cross-checking, photo sharpness, voxel reconstruction (`PhotoVoxelReconstruction`), live reconstruction (`LiveReconstruction`, `LivePhotogrammetry`). **Fusion and meshing**: sparse TSDF (8³ blocks), space carving, Surface Nets, mesh cleanup. **Texturing**: photo-patch texturing. **Segmentation**: sequential RANSAC for planes and cylinders with least-squares refinement. Synthetic SDF shapes and renderers for tests |
+| `Scanner.Core` | **Turntable**: printed-mat code, dot detection and pose (`TurntableMat`, `MatDetector`, `MatPose`, `MatTurntableScan`), ICP and TrueDepth fusion (`RigidAligner`, `TurntableFusion`), LiDAR fusion posed by the dot ring (`LidarMatTurntable`). **Sensor mesh**: cutting the piece from a LiDAR mesh (`SensorMesh`). **Photogrammetry**: corners, guided matching, tracks, triangulation, bundle adjustment, pose refinement (`PoseRefiner`, `LivePoses`), plane-sweep stereo, depth-map cross-checking, photo sharpness, voxel reconstruction (`PhotoVoxelReconstruction`), live reconstruction (`LiveReconstruction`, `LivePhotogrammetry`). **Fusion and meshing**: sparse TSDF (8³ blocks), space carving, Surface Nets, mesh cleanup. **Texturing**: photo-patch texturing. **Segmentation**: sequential RANSAC for planes and cylinders with least-squares refinement. Synthetic SDF shapes and renderers for tests |
 | `Scanner.Brep` | B-Rep model (vertices, edges, loops, faces, solid) with a validator, builders for **convex polyhedra** (from planes) and **tubes** (cylinder with optional coaxial hole), and a **STEP AP214 writer** (ISO 10303-21, millimetres) |
 | `Scanner.Desktop` | `scan3d-process`: reprocesses a session or `.scan` file on a PC (the earlier point-cloud pipeline, not yet the voxel/texture one) |
 
@@ -150,7 +159,7 @@ src/
   Scanner.App/              .NET MAUI app, Android + iOS + Windows       (→ Capture, Core)
     Platforms/Android/      ARCore session, depth/camera readers, GLES renderers (camera, points, live surface,
                             textured model), the mat turntable camera
-    Platforms/iOS/          ARKit LiDAR scan (mesh, depth, photos), TrueDepth capture, SceneKit preview
+    Platforms/iOS/          ARKit LiDAR scan (mesh, depth, photos), TrueDepth and LiDAR depth capture, SceneKit preview
 tests/
   Scanner.Capture.Tests/    xUnit
   Scanner.Core.Tests/       xUnit, incl. synthetic scans of known shapes
@@ -233,6 +242,10 @@ Leaving the scan page before pressing Finish discards the unfinished session.
 with the whole ring in view (about 30 cm away, looking down at 25–40°). The status says when the mat is found; press
 **Start**, turn the mat slowly or in small steps through a full turn (the status counts the degrees covered), then
 **Finish**.
+
+**Turntable · LiDAR** (iPhone Pro): put the phone on the turntable's stand, back towards the platter, tilted so the
+whole dot ring is in view (about 25 cm, 30° down), and the piece inside the groove. The status says when the ring is
+found; press **Start**, run the turntable through a full turn (the status counts the degrees covered), then **Finish**.
 
 **Turntable · TrueDepth** (iPhone): stand the phone about 25 cm from the piece, screen towards it, crosshair on the
 piece; press **Start**, turn the piece one full turn without your hand in view (a turntable is best), then **Finish**.

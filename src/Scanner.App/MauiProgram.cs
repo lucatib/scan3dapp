@@ -36,6 +36,7 @@ public static class MauiProgram
 		builder.Services.AddTransient<Scanner.App.Pages.MatTurntablePage>();
 		builder.Services.AddTransient<Scanner.App.Pages.PreviewPage>();
 		builder.Services.AddTransient<Scanner.App.Pages.TurntablePage>();
+		builder.Services.AddTransient<Scanner.App.Pages.LidarTurntablePage>();
 
 #if DEBUG
 		builder.Logging.AddDebug();

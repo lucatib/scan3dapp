@@ -14,9 +14,10 @@ using UIKit;
 namespace Scanner.App.iOS.Handlers;
 
 /// <summary>
-/// The front TrueDepth camera: its picture on screen, and synchronized depth and camera images handed to
-/// <see cref="TurntableView"/>. Depth is the camera's unfiltered depth (holes stay holes, rather than being filled
-/// with guesses), at the highest resolution the chosen video format offers.
+/// A still depth camera, the front TrueDepth or the rear LiDAR (<see cref="TurntableView.Camera"/>): its picture on
+/// screen, and synchronized depth and camera images handed to <see cref="TurntableView"/>. Depth is the camera's
+/// unfiltered depth (holes stay holes, rather than being filled with guesses), at the highest resolution the chosen
+/// video format offers.
 /// </summary>
 public sealed class TurntableViewHandler : ViewHandler<TurntableView, TurntableViewHandler.PreviewView>
 {
@@ -76,14 +77,20 @@ public sealed class TurntableViewHandler : ViewHandler<TurntableView, TurntableV
 
     private AVCaptureSession CreateSession()
     {
-        var device = AVCaptureDevice.GetDefaultDevice(AVCaptureDeviceType.BuiltInTrueDepthCamera, AVMediaTypes.Video,
-                         AVCaptureDevicePosition.Front)
-                     ?? throw new NotSupportedException("This device has no TrueDepth camera.");
+        bool lidar = VirtualView.Camera == DepthCamera.BackLidar;
+        if (lidar && !OperatingSystem.IsIOSVersionAtLeast(15, 4))
+            throw new NotSupportedException("The LiDAR camera needs iOS 15.4 or later.");
+        var device = (lidar && OperatingSystem.IsIOSVersionAtLeast(15, 4)
+                         ? AVCaptureDevice.GetDefaultDevice(AVCaptureDeviceType.BuiltInLiDarDepthCamera, AVMediaTypes.Video,
+                             AVCaptureDevicePosition.Back)
+                         : AVCaptureDevice.GetDefaultDevice(AVCaptureDeviceType.BuiltInTrueDepthCamera, AVMediaTypes.Video,
+                             AVCaptureDevicePosition.Front))
+                     ?? throw new NotSupportedException(lidar ? "This device has no LiDAR camera." : "This device has no TrueDepth camera.");
         var session = new AVCaptureSession();
         session.BeginConfiguration();
         session.SessionPreset = AVCaptureSession.PresetInputPriority;
         var input = AVCaptureDeviceInput.FromDevice(device, out var error)
-                    ?? throw new InvalidOperationException(error?.LocalizedDescription ?? "The TrueDepth camera could not be opened.");
+                    ?? throw new InvalidOperationException(error?.LocalizedDescription ?? "The depth camera could not be opened.");
         session.AddInput(input);
 
         // The largest video format up to 1920 wide that comes with float depth; then its largest depth format.
@@ -93,9 +100,11 @@ public sealed class TurntableViewHandler : ViewHandler<TurntableView, TurntableV
             .Where(f => f.Size.Width <= 1920)
             .OrderByDescending(f => f.Size.Width * f.Size.Height)
             .Select(f => f.Format)
-            .FirstOrDefault() ?? throw new NotSupportedException("The TrueDepth camera offers no depth format.");
+            .FirstOrDefault() ?? throw new NotSupportedException("The depth camera offers no depth format.");
+        // The widest depth; 32-bit before 16-bit (both are converted to 32-bit metres on arrival).
         var depthFormat = format.SupportedDepthDataFormats.Where(IsFloatDepth)
             .OrderByDescending(f => ((CMVideoFormatDescription)f.FormatDescription).Dimensions.Width)
+            .ThenByDescending(f => ((CMVideoFormatDescription)f.FormatDescription).MediaSubType == (uint)CVPixelFormatType.DepthFloat32)
             .First();
 
         var video = new AVCaptureVideoDataOutput
@@ -109,7 +118,7 @@ public sealed class TurntableViewHandler : ViewHandler<TurntableView, TurntableV
         depth.ConnectionFromMediaType(AVMediaTypes.DepthData.GetConstant()!)!.Enabled = true;
 
         if (!device.LockForConfiguration(out error))
-            throw new InvalidOperationException(error?.LocalizedDescription ?? "The TrueDepth camera is busy.");
+            throw new InvalidOperationException(error?.LocalizedDescription ?? "The depth camera is busy.");
         try
         {
             device.ActiveFormat = format;
@@ -129,7 +138,8 @@ public sealed class TurntableViewHandler : ViewHandler<TurntableView, TurntableV
     }
 
     private static bool IsFloatDepth(AVCaptureDeviceFormat f) =>
-        f.FormatDescription is CMVideoFormatDescription d && d.MediaSubType == (uint)CVPixelFormatType.DepthFloat32;
+        f.FormatDescription is CMVideoFormatDescription d
+        && (d.MediaSubType == (uint)CVPixelFormatType.DepthFloat32 || d.MediaSubType == (uint)CVPixelFormatType.DepthFloat16);
 
     /// <summary>The camera picture, filling the view.</summary>
     public sealed class PreviewView : UIView
@@ -196,7 +206,35 @@ public sealed class TurntableViewHandler : ViewHandler<TurntableView, TurntableV
             var frame = new DepthFrame(depthIntrinsics, metres, System.Numerics.Matrix4x4.Identity, seconds);
             // Held for the page: encoding happens on its worker, and only for the frames it keeps a photo of.
             var held = pixels;
-            view.Raise(new DepthCapture(frame, photoIntrinsics, () => EncodeJpeg(held), held.Dispose));
+            view.Raise(new DepthCapture(frame, photoIntrinsics, () => EncodeJpeg(held), () => Preview(held, photoIntrinsics),
+                held.Dispose));
+        }
+
+        /// <summary>The luma plane averaged down to about 960 pixels wide, with its intrinsics.</summary>
+        private static PhotoView Preview(CVPixelBuffer pixels, CameraIntrinsics k)
+        {
+            pixels.Lock(CVPixelBufferLock.ReadOnly);
+            try
+            {
+                int width = (int)pixels.GetWidthOfPlane(0), height = (int)pixels.GetHeightOfPlane(0);
+                int stride = (int)pixels.GetBytesPerRowOfPlane(0);
+                var luma = new byte[width * height];
+                unsafe
+                {
+                    byte* start = (byte*)pixels.GetBaseAddress(0);
+                    for (int row = 0; row < height; row++)
+                        new ReadOnlySpan<byte>(start + row * stride, width).CopyTo(luma.AsSpan(row * width, width));
+                }
+                int factor = Math.Max(1, width / 960);
+                var small = GrayImage.Downscale(luma, width, height, factor);
+                var intrinsics = new CameraIntrinsics(small.Width, small.Height, k.Fx / factor, k.Fy / factor,
+                    (k.Cx + 0.5f) / factor - 0.5f, (k.Cy + 0.5f) / factor - 0.5f);
+                return new PhotoView(small, intrinsics, System.Numerics.Matrix4x4.Identity);
+            }
+            finally
+            {
+                pixels.Unlock(CVPixelBufferLock.ReadOnly);
+            }
         }
 
         private static byte[] EncodeJpeg(CVPixelBuffer pixels)

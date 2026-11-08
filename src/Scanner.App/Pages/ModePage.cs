@@ -20,6 +20,11 @@ public sealed class ModePage : ContentPage
             modes.Add(Mode("Turntable · TrueDepth",
                 "Phone standing still, screen towards the piece about 25 cm away; the piece turns. For small pieces.",
                 "turntable"));
+        if (ArPlatform.HasLidarTurntable)
+            modes.Add(Mode("Turntable · LiDAR",
+                "Phone on the stand, back towards the motorised platter; the piece turns. The dot ring poses every "
+                + "frame, the LiDAR measures the piece.",
+                "lidarturntable"));
         if (ArPlatform.HasMatTurntable)
         {
             modes.Add(Mode("Turntable · printed mat",
