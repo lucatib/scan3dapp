@@ -876,6 +876,11 @@ def run(_context):
     design = adsk.fusion.Design.cast(app.activeProduct)
     design.designType = adsk.fusion.DesignTypes.DirectDesignType
     root = design.rootComponent
+    # The parts live in components; anything loose in the root is scratch left by an interrupted run.
+    for b in list(root.bRepBodies):
+        b.deleteMe()
+    for sk in list(root.sketches):
+        sk.deleteMe()
 
     filled, rings = inserts()
     py = post_y()
