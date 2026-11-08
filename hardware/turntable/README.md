@@ -54,21 +54,47 @@ The dots sit exactly where the paper mat has them (ring Ø176, dots Ø9, holes �
 above, so the mat code reads the same. The white centre of a ring dot is a post of the platter; the dashed groove
 marks where the piece must stand. Insert fit is `INSERT_CLEAR` (0.15 mm radial).
 
-## Hardware
+## Bill of materials
 
-- 28BYJ-48 (5 V) and its ULN2003 board
-- ESP32-S3-WROOM-1 devkit with two USB-C (57 × 28.3 mm, the `ESP32-S3-WROOM-1_devkit_2xUSBC` model), headers
-  soldered pins down, in its holder in the base
-- 2 × 608 (608ZZ) bearing, pressed into the platter's hub
-- M8 × 35 hex bolt: the axle, head pressed into the hex under the base
-- 2 × M3 × 8 + nuts: motor ears to the plate
-- 4 × M3 × 6 self-tapping screws: the ULN2003 board on its standoffs
-- 2 × M4 × 16 + nuts: arm to the base (nuts in the pockets inside the base)
-- M6 × 25 hex bolt: its head slides in the channel under the arm, the M6 knob clamps the tower
-- M5 × 35 bolt: tilt axis, clamped by the M5 knob
-- 2 × M5 × 20 hex bolt + nuts: the jaws (head in the jaw's slot, knob behind the plate)
-- 12 mm momentary panel button (optional, start/stop)
-- 1/4"-20 hex nut (7/16" across flats): the tripod adapter (optional)
+### To buy
+
+| Qty | Item | Where it goes |
+|---|---|---|
+| 1 | 28BYJ-48 stepper motor, 5 V | hangs through the motor plate in the base |
+| 1 | ULN2003 driver board (35 × 31.5 mm, holes 30.2 × 26.4) | on four standoffs in the base |
+| 1 | ESP32-S3-WROOM-1 devkit, 2 × USB-C (57 × 28.3 mm), headers soldered pins down | in its holder in the base |
+| 2 | 608ZZ bearing (8 × 22 × 7) | pressed into the platter's hub |
+| 1 | M8 × 35 hex bolt | the axle, head pressed into the hex under the base |
+| 2 | M3 × 8 screw + M3 nut | motor ears to the plate |
+| 4 | M3 × 6 self-tapping screw | ULN2003 board to its standoffs |
+| 2 | M4 × 16 screw + M4 nut | arm to the base (nuts in the pockets inside the base) |
+| 1 | M6 × 25 hex bolt + M6 nut | tower to the arm (head in the arm's channel, nut in the M6 knob) |
+| 1 | M5 × 35 screw + M5 nut | tilt axis (nut in the M5 knob) |
+| 2 | M5 × 20 hex bolt + M5 nut | jaws (head in the jaw, nut in the jaw knob) |
+| 1 | 12 mm momentary panel button | start/stop, in the base wall (optional) |
+| 1 | 1/4"-20 hex nut (7/16" across flats) | tripod adapter (optional) |
+| ~8 | Dupont female–female jumper wires | ESP32 to ULN2003 (IN1–IN4, 5 V, GND) and the button |
+| 1 | USB-C cable and 5 V USB supply | powers everything through the ESP32 |
+
+### To print
+
+PLA or PETG. Volumes are of the solid parts as modelled; with the usual walls and infill the slicer will use less.
+
+| Component | Qty | Colour | Volume (cm³) | Solid PLA (g) |
+|---|---|---|---|---|
+| Piatto | 1 | white, matte | 383.5 | 476 |
+| Inserti pieni, Inserti anello | 18 + 18 | black | 4.4 | 5 |
+| Base | 1 | any | 225.7 | 280 |
+| Pignone | 1 | any | 1.1 | 1 |
+| Braccio | 1 | any | 74.7 | 93 |
+| Torre | 1 | any | 39.3 | 49 |
+| Supporto piastra | 1 | any | 24.5 | 30 |
+| Ganascia sinistra, Ganascia destra | 1 + 1 | any | 27.6 | 34 |
+| Pomello M6 | 1 | any | 6.9 | 9 |
+| Pomello M5 + Pomelli ganasce | 1 + 2 | any | 10.3 | 13 |
+| Attacco treppiede (optional) | 1 | any | 16.1 | 20 |
+| **Turntable and stand** | | | **814** | **≈ 1010** |
+| Test prints (`Prova ...`, all eight) | | any | 100 | 124 |
 
 ## Wiring
 
