@@ -254,7 +254,8 @@ def dots():
 COLORS = [
     ("Piatto", (240, 240, 235)), ("Inserti", (20, 20, 20)), ("Base", (90, 90, 95)),
     ("Pignone", (230, 120, 30)), ("Pomell", (230, 120, 30)), ("Prova", (230, 120, 30)),
-    ("Supporto", (200, 60, 60)), ("RIF iPhone", (40, 40, 50)),
+    ("Supporto", (200, 60, 60)), ("RIF iPhone", (40, 40, 50)), ("RIF cuscinetti", (190, 190, 200)),
+    ("RIF vite", (150, 150, 160)),
     ("Braccio", (70, 110, 170)), ("Torre", (70, 110, 170)), ("Ganascia", (70, 110, 170)), ("Attacco", (70, 110, 170)),
 ]
 
@@ -573,6 +574,23 @@ def uln_model(root):
     import_model(root, "RIF ULN2003", ULN_MODEL, m)
 
 
+def bearing_dummies():
+    """Two 608ZZ (8 x 22 x 7) stacked in the platter's hub, inner races on the boss's ring."""
+    out = []
+    for k in range(2):
+        z = HUB_Z0 + 7 * k
+        ring = cut(cyl(0, 0, z, z + 7, 22), cyl(0, 0, z - 1, z + 8, 8))
+        out.append(cut(ring, cut(cyl(0, 0, z + 6.6, z + 7.1, 19), cyl(0, 0, z + 6, z + 8, 12)),     # shields' recess,
+                       cut(cyl(0, 0, z - 0.1, z + 0.4, 19), cyl(0, 0, z - 1, z + 1, 12))))      # both faces
+    return out
+
+
+def axle_dummy(root):
+    """The M8 x 30 hex bolt: head in the hex under the base, shank up through the boss and the bearings."""
+    head = prisms(root, [hexagon(13.0)], 0, 5.3)[0]
+    return union(head, cyl(0, 0, 5.3, 35.3, 8))
+
+
 def motor_dummy():
     sx = shaft_x()
     mx = sx + MOTOR_SHAFT_OFFSET
@@ -742,7 +760,8 @@ def run(_context):
         ("Pomelli ganasce", [jaw_knob(root, -1, gap), jaw_knob(root, 1, gap)]),
         ("Attacco treppiede", [tripod_adapter(root, tripod_axis_shown())]),
     ]
-    reference = [(f"RIF {name}", [phone_dummy(w, t, h, bump)])]
+    reference = [(f"RIF {name}", [phone_dummy(w, t, h, bump)]), ("RIF cuscinetti 608ZZ", bearing_dummies()),
+                 ("RIF vite M8x30", [axle_dummy(root)])]
 
     for name, bodies in printed + reference + test_parts(root):
         add_part(root, name, bodies)
