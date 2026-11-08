@@ -20,9 +20,9 @@ public static class TurntableMat
     /// <summary>The motorised platter's radius, metres (Ø 240 mm).</summary>
     public const float PlatterRadius = 0.120f;
 
-    /// <summary>Ring radius, metres: as wide as the platter allows while keeping a solid rim (5.5 mm) outside each dot,
-    /// so the inserts' pockets do not break through the edge.</summary>
-    public const float RingRadius = PlatterRadius - 0.010f;
+    /// <summary>Ring radius, metres: 20 mm in from the platter edge, a 15.5 mm rim outside each dot, so the ring stays
+    /// in view of a phone 29 cm from the centre with room to spare.</summary>
+    public const float RingRadius = PlatterRadius - 0.020f;
 
     public const float DotRadius = 0.0045f;
 

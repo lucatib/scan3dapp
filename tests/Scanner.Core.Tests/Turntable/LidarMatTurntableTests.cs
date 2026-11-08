@@ -53,7 +53,7 @@ public class LidarMatTurntableTests
             Assert.True(result.Accepted, $"frame {i}: {result.Reason}");
             Assert.Equal(ringHidden ? TurntablePoseSource.Icp : TurntablePoseSource.Mat, result.Source);
 
-            var truth = MatDetectorTests.CameraOnMat(turn, 30, 0.34f);
+            var truth = MatDetectorTests.CameraOnMat(turn, 30, 0.29f);
             var pose = result.CameraToMat!.Value;
             Assert.True(Vector3.Distance(pose.Translation, truth.Translation) < 0.004f,
                 $"frame {i}: camera at {pose.Translation}, truth {truth.Translation}");
@@ -79,7 +79,7 @@ public class LidarMatTurntableTests
     {
         // The depth sees the platter 2 cm lower than the photo's ring says (a misread ring, or unregistered depth).
         var scan = new LidarMatTurntable();
-        var pose = MatDetectorTests.CameraOnMat(0, 30, 0.34f);
+        var pose = MatDetectorTests.CameraOnMat(0, 30, 0.29f);
         var shifted = pose * Matrix4x4.CreateTranslation(0, 0.02f, 0);
         var depth = SyntheticDepthRenderer.Render(new UnionSdf([Platter, Piece]), Depth, shifted);
         var result = scan.Add(depth, RenderPhoto(0));
@@ -94,14 +94,14 @@ public class LidarMatTurntableTests
         Assert.Equal(-1.2f, LidarMatTurntable.TurnAboutY(Matrix4x4.CreateRotationY(-1.2f)), 5);
     }
 
-    /// <summary>The still camera about 34 cm from the platter centre, 30° down; the platter turned by
+    /// <summary>The still camera about 29 cm from the platter centre, 30° down; the platter turned by
     /// <paramref name="turnDegrees"/> (seen from the mat, the camera goes round the other way).</summary>
     private static DepthFrame RenderDepth(float turnDegrees, int seed) =>
-        SyntheticDepthRenderer.Render(new UnionSdf([Platter, Piece]), Depth, MatDetectorTests.CameraOnMat(turnDegrees, 30, 0.34f),
+        SyntheticDepthRenderer.Render(new UnionSdf([Platter, Piece]), Depth, MatDetectorTests.CameraOnMat(turnDegrees, 30, 0.29f),
             noiseSigma: 0.0005f, seed: seed, timestampSeconds: seed * 0.5);
 
     private static PhotoView RenderPhoto(float turnDegrees) =>
-        new(MatDetectorTests.Render(MatDetectorTests.CameraOnMat(turnDegrees, 30, 0.34f), 0.035f, 0.065f), Photo,
+        new(MatDetectorTests.Render(MatDetectorTests.CameraOnMat(turnDegrees, 30, 0.29f), 0.035f, 0.065f), Photo,
             Matrix4x4.Identity);
 
     private static PhotoView Blank() => new(new GrayImage(Photo.Width, Photo.Height, Enumerable.Repeat((byte)140,
