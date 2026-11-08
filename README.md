@@ -17,7 +17,7 @@ The app opens on a mode selection page; each way of scanning is its own mode, of
 | **Handheld · AR** | Android (ARCore depth) | Photo stereo in a TSDF, space carving | ARCore, refined from the photos |
 | **Handheld · LiDAR** | iPhone Pro (LiDAR) | ARKit's scene mesh, cut around the target above the table | ARKit |
 | **Turntable · TrueDepth** | iPhone (front TrueDepth) | TrueDepth depth in a 1 mm TSDF | ICP of each depth frame against the piece fused so far |
-| **Turntable · LiDAR** | iPhone Pro (rear camera + LiDAR), on the [motorised turntable](hardware/turntable) | LiDAR depth in a 1.5 mm TSDF, in the platter's frame | The platter's dot ring in every camera image; ICP while it is hidden |
+| **Turntable · LiDAR** | iPhone Pro (rear camera + LiDAR), on the [motorised turntable](https://github.com/lucatib/scan3d_turntable) | LiDAR depth in a 1.5 mm TSDF, in the platter's frame | The platter's dot ring in every camera image; ICP while it is hidden |
 | **Turntable · printed mat** | Android | Photo stereo in a TSDF, as handheld | The dots of a printed mat, in every photo (exact, true scale) |
 
 The reconstruction pattern below is the handheld Android mode's, the one tested on a phone. The iPhone modes and the
@@ -113,7 +113,7 @@ The Windows target builds, but its views only show a placeholder message: scanni
   they are; a homography and Gauss-Newton on the reprojection give the camera pose in the mat's frame, in metres. The
   piece stands inside the dashed circle.
 - **LiDAR** (`LidarMatTurntable`, iPhone): the phone stands still on the stand of the
-  [motorised turntable](hardware/turntable), back towards the platter, whose black inserts are the mat's dot ring.
+  [motorised turntable](https://github.com/lucatib/scan3d_turntable), back towards the platter, whose black inserts are the mat's dot ring.
   AVFoundation's LiDAR depth camera gives synchronized depth and camera images; each image is posed from the ring
   (as the printed mat), so the depth goes straight into a TSDF in the platter's frame, the platter and everything
   beyond 10 cm of its axis cut away. A ring pose whose platter the depth puts more than 6 mm off y = 0 is refused (a
