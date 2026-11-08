@@ -50,12 +50,26 @@ MOTOR_SHAFT_OFFSET = 8.0    # shaft to body centre
 MOTOR_EAR_HOLES = 35.0
 
 # --- Phone stand --------------------------------------------------------------------------------------------------
-PHONE_W, PHONE_T, PHONE_H = 71.5, 7.65, 146.7     # iPhone 13 Pro, no case
-PHONE_CLEAR_W, PHONE_CLEAR_T = 0.8, 0.7
-CRADLE_WALL = 3.0           # side rails
-CRADLE_LIP = 2.5            # face lips, front and back
-CRADLE_LIP_OVER = 3.0       # how far the lips reach over the screen / back
-CRADLE_H = 50.0
+# Adjustable cradle: a back plate with two slots, and two jaws with a V groove that take the phone's edges, whatever
+# its thickness, so the phone stays centred on the plate. Each jaw is clamped by an M5 bolt (head in the jaw) and a
+# knob behind the plate. Reference phones, shown or checked: width, thickness, height, and the rear camera block seen
+# from the back (left edge to its sides, top edge to its ends, how far it stands out).
+PHONES = [
+    ("iPhone 13 Pro", 71.5, 7.65, 146.7, (1, 38, 1, 38, 3.5)),
+    ("Galaxy S24 Ultra", 79.0, 8.6, 162.3, (7, 24, 9, 62, 2.0)),
+    ("Galaxy S24 Ultra, rugged case", 87.0, 15.0, 170.0, (11, 28, 13, 66, 0.0)),
+]
+PHONE_T_MAX = 18.0          # thickest phone (with its case) the jaws take
+GROOVE_OPEN = 20.0          # V groove: width at the jaw's face
+GROOVE_DEPTH = 4.0
+JAW_T = 10.0                # jaw, across
+JAW_H = 60.0
+JAW_FRONT = 12.0            # jaw reach in front of the phone's middle plane
+JAW_SLOT = (30.0, 55.0)     # bolt positions along each slot, from the plate centre: jaw faces 50..100 mm apart
+PLATE_HALF_W = 62.0
+PLATE_T = 6.0
+PLATE_H = 30.0
+FOOT_H = 4.0                # the phone stands on the jaws' feet
 HINGE_Z = 70.0              # tilt axis height above the table
 HINGE_BACK = 13.0           # tilt axis behind the cradle's back face (the M5 knob, Ø24, has to clear it)
 CAMERA_DISTANCE = 250.0     # default phone position: platter centre to the phone's face
@@ -290,7 +304,7 @@ def pinion(root):
 
 def post_y():
     """The tilt axis, so that the phone's face towards the platter is CAMERA_DISTANCE from its centre."""
-    return -CAMERA_DISTANCE - PHONE_T / 2 - (PHONE_T + PHONE_CLEAR_T) / 2 - CRADLE_LIP - HINGE_BACK
+    return -CAMERA_DISTANCE - PHONES[0][2] / 2 - plate_back() - HINGE_BACK
 
 
 def arm(root):
@@ -316,25 +330,53 @@ def tower(root):
     return body
 
 
+def plate_back():
+    """Distance from the phone's middle plane to the back of the cradle plate."""
+    return PHONE_T_MAX / 2 + 1 + PLATE_T
+
+
 def cradle_origin():
-    """World position of the cradle's local origin: slot centre, bottom of the ledge."""
-    st = (PHONE_T + PHONE_CLEAR_T) / 2
-    return (0, post_y() + st + CRADLE_LIP + HINGE_BACK, HINGE_Z - 12)
+    """World position of the cradle's local origin on the hinge: phone's middle plane, bottom of the jaws."""
+    return (0, post_y() + plate_back() + HINGE_BACK, HINGE_Z - 12)
 
 
-def cradle():
-    sw = (PHONE_W + PHONE_CLEAR_W) / 2
-    st = (PHONE_T + PHONE_CLEAR_T) / 2
-    ow, ot = sw + CRADLE_WALL, st + CRADLE_LIP
-    body = box(-ow, ow, -ot, ot, 0, CRADLE_H + 3)
-    cut(body, box(-sw, sw, -st, st, 3, CRADLE_H + 10),                          # the phone
-        box(-sw + CRADLE_LIP_OVER, sw - CRADLE_LIP_OVER, -ot - 1, ot + 1, 8, CRADLE_H + 10),   # leave only lips
-        box(-8, 8, -ot - 0.1, ot + 0.1, -1, 9))                                  # Lightning cable
-    hy = -ot - HINGE_BACK
+def jaw_gap(w, t):
+    """Distance between the jaw faces for a phone w wide and t thick (flat sides): its edges sit in the V grooves."""
+    return w - 2 * GROOVE_DEPTH * (1 - t / GROOVE_OPEN)
+
+
+def cradle_plate():
+    front, back = -(PHONE_T_MAX / 2 + 1), -plate_back()
+    zc = PLATE_H / 2
+    body = box(-PLATE_HALF_W, PLATE_HALF_W, back, front, 0, PLATE_H)
+    a, b = JAW_SLOT
+    for sx in (-1, 1):
+        cut(body, box(min(sx * a, sx * b), max(sx * a, sx * b), back - 1, front + 1, zc - 2.7, zc + 2.7),
+            cyl_pts((sx * a, back - 1, zc), (sx * a, front + 1, zc), 5.4),
+            cyl_pts((sx * b, back - 1, zc), (sx * b, front + 1, zc), 5.4))
+    hy = back - HINGE_BACK
     for sx in (-1, 1):
         x0, x1 = sorted((sx * 4.2, sx * 9.2))
-        union(body, box(x0, x1, hy, -ot + 0.5, 2, 22), cyl_pts((x0, hy, 12), (x1, hy, 12), 20))
-    cut(body, cyl_pts((-10, hy, 12), (10, hy, 12), 5.3))
+        union(body, box(x0, x1, hy, back + 0.5, 2, 22), cyl_pts((x0, hy, 12), (x1, hy, 12), 20))
+    # Tilted forward, the plate's bottom swings back over the tower's tab: a notch lets it through.
+    cut(body, cyl_pts((-10, hy, 12), (10, hy, 12), 5.3), box(-4.2, 4.2, back - 1, front + 1, -1, 8))
+    return move(body, *cradle_origin())
+
+
+def jaw(root, sx, gap):
+    """The jaw on side sx (+1 / -1), its face gap / 2 from the middle."""
+    x_in, x_out = sx * gap / 2, sx * (gap / 2 + JAW_T)
+    xc, zc = sx * (gap / 2 + JAW_T / 2), PLATE_H / 2
+    front = -(PHONE_T_MAX / 2 + 1)
+    body = box(min(x_in, x_out), max(x_in, x_out), front, JAW_FRONT, 0, JAW_H)
+    x_foot = x_in - sx * 10
+    union(body, box(min(x_in, x_foot), max(x_in, x_foot), -GROOVE_OPEN / 2, GROOVE_OPEN / 2, 0, FOOT_H))
+    v = [(x_in, -GROOVE_OPEN / 2), (x_in + sx * GROOVE_DEPTH, 0), (x_in, GROOVE_OPEN / 2)]
+    groove = prisms(root, [v + [(x_in - sx * 1, GROOVE_OPEN / 2), (x_in - sx * 1, -GROOVE_OPEN / 2)]],
+                    FOOT_H, JAW_H)[0]
+    # M5 bolt: hex head in a slot open to the groove face, shank out of the back through the plate's slot.
+    head = box(min(x_in - sx, xc + sx * 4.1), max(x_in - sx, xc + sx * 4.1), front + 3, front + 6.8, zc - 4.8, zc + 4.8)
+    cut(body, groove, head, cyl_pts((xc, front - 1, zc), (xc, front + 5, zc), 5.3))
     return move(body, *cradle_origin())
 
 
@@ -347,12 +389,21 @@ def knob(root, d, h, nut_af, nut_depth, hole_d):
     return body
 
 
-def phone_dummy():
-    st = PHONE_T / 2
-    body = box(-PHONE_W / 2, PHONE_W / 2, -st, st, 3, 3 + PHONE_H)
-    top = 3 + PHONE_H
-    union(body, box(-PHONE_W / 2 + 1, -PHONE_W / 2 + 38, -st - 3.5, -st + 0.1, top - 38, top - 1))  # camera bump, back
+def phone_dummy(w, t, h, bump):
+    """Screen towards the platter (+Y), so seen from the back its left edge is -X."""
+    st, top = t / 2, FOOT_H + h
+    x0, x1, z0, z1, out = bump
+    body = box(-w / 2, w / 2, -st, st, FOOT_H, top)
+    if out > 0:
+        union(body, box(-w / 2 + x0, -w / 2 + x1, -st - out, -st + 0.1, top - z1, top - z0))
     return move(body, *cradle_origin())
+
+
+def jaw_knob(root, sx, gap):
+    knob5 = knob(root, 24, 10, 8.2, 4.5, 5.3)
+    xc = sx * (gap / 2 + JAW_T / 2)
+    o = cradle_origin()
+    return frame(knob5, (o[0] + xc, o[1] - plate_back(), o[2] + PLATE_H / 2), (1, 0, 0), (0, 0, 1), (0, -1, 0))
 
 
 def motor_dummy():
@@ -381,11 +432,18 @@ def run(_context):
         ("Pignone", [pinion(root)]),
         ("Braccio", [arm(root)]),
         ("Torre", [tower(root)]),
-        ("Supporto iPhone", [cradle()]),
         ("Pomello M6", [knob6]),
         ("Pomello M5", [knob5]),
     ]
-    reference = [("RIF motore 28BYJ-48", [motor_dummy()]), ("RIF iPhone 13 Pro", [phone_dummy()])]
+    name, w, t, h, bump = PHONES[0]
+    gap = jaw_gap(w, t)
+    printed += [
+        ("Supporto piastra", [cradle_plate()]),
+        ("Ganascia sinistra", [jaw(root, -1, gap)]),
+        ("Ganascia destra", [jaw(root, 1, gap)]),
+        ("Pomelli ganasce", [jaw_knob(root, -1, gap), jaw_knob(root, 1, gap)]),
+    ]
+    reference = [("RIF motore 28BYJ-48", [motor_dummy()]), (f"RIF {name}", [phone_dummy(w, t, h, bump)])]
 
     out_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "stl")
     os.makedirs(out_dir, exist_ok=True)
