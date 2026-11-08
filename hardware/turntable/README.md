@@ -83,7 +83,7 @@ PLA or PETG. Volumes are of the solid parts as modelled; with the usual walls an
 
 | Component | Qty | Colour | Volume (cm³) | Solid PLA (g) |
 |---|---|---|---|---|
-| Piatto | 1 | white, matte | 291.5 | 361 |
+| Piatto | 1 | white, matte | 383.5 | 476 |
 | Inserti pieni, Inserti anello | 18 + 18 | black | 4.4 | 5 |
 | Base | 1 | any | 225.7 | 280 |
 | Pignone | 1 | any | 1.1 | 1 |
@@ -94,7 +94,7 @@ PLA or PETG. Volumes are of the solid parts as modelled; with the usual walls an
 | Pomello M6 | 1 | any | 6.9 | 9 |
 | Pomello M5 + Pomelli ganasce | 1 + 2 | any | 10.3 | 13 |
 | Attacco treppiede (optional) | 1 | any | 16.1 | 20 |
-| **Turntable and stand** | | | **723** | **≈ 900** |
+| **Turntable and stand** | | | **815** | **≈ 1010** |
 | Test prints (`Prova ...`, all eight) | | any | 100 | 124 |
 
 ## Wiring
@@ -178,7 +178,7 @@ ESP32-S3-DevKitC-1. Open the folder in the pioarduino IDE and use Upload, or fro
 
   ![Axle and bearings](asse.png)
 
-- Base 30.9 mm tall, platter 6 mm thick with its top 38.9 mm above the table: the heights follow from the motor (body just above the 2.4 mm floor, pinion on the shaft's flats, platter 1 mm above the pinion). The only hole in the bottom is the hex for the axle bolt's head. The platter sits on the upper bearing's outer race and lifts off.
+- Base 30.9 mm tall, platter 8 mm thick with its top 40.9 mm above the table: the heights follow from the motor (body just above the 2.4 mm floor, pinion on the shaft's flats, platter 1 mm above the pinion). The only hole in the bottom is the hex for the axle bolt's head. The platter sits on the upper bearing's outer race and lifts off.
 - Gear module 1, 64 teeth on the platter, 16 on the pinion, centre distance 40.1 mm: 4 motor turns per platter turn,
   about 16303 half steps per platter turn (the motor's gearbox is 63.684:1, not 64).
 - Phone stand: the tower's foot has skirts down both sides of the arm, so it slides along it and cannot turn round
