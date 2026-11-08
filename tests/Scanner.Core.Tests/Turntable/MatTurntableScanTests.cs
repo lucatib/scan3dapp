@@ -15,17 +15,18 @@ public class MatTurntableScanTests
         var kept = new List<bool>();
         foreach (float turn in turns)
         {
-            var pose = MatDetectorTests.CameraOnMat(turn, 30, 0.32f);
+            var pose = MatDetectorTests.CameraOnMat(turn, 30, 0.34f);
             var photo = new PhotoView(MatDetectorTests.Render(pose, 0.04f, 0.07f), Camera, System.Numerics.Matrix4x4.Identity);
             var result = scan.Offer(photo);
             kept.Add(result.Kept);
             Assert.NotNull(result.AngleDegrees);
-            Assert.InRange(MathF.Abs(result.AngleDegrees!.Value - MatTurntableScan.Angle(pose)), 0, 0.3f);
+            float off = MathF.Abs(result.AngleDegrees!.Value - MatTurntableScan.Angle(pose)) % 360;
+            Assert.InRange(MathF.Min(off, 360 - off), 0, 0.3f); // 0° and 360° are the same angle
         }
 
         Assert.Equal([true, false, true, false, true, false], kept);
         Assert.Equal(3, scan.Views.Count);
         Assert.True(System.Numerics.Vector3.Distance(scan.Views[2].CameraToWorld.Translation,
-            MatDetectorTests.CameraOnMat(40, 30, 0.32f).Translation) < 0.001f);
+            MatDetectorTests.CameraOnMat(40, 30, 0.34f).Translation) < 0.001f);
     }
 }
