@@ -36,7 +36,7 @@ GEAR_TEETH = 64
 PINION_TEETH = 16
 GEAR_BACKLASH = 0.15        # tooth thickness taken off each gear, at the pitch circle
 GEAR_Z0 = 28.5              # platter gear: GEAR_Z0 .. PLATTER_Z0
-PINION_Z = (29.0, 36.0)
+PINION_Z = (29.7, 36.0)       # only on the shaft's flats (29.6 .. 35.6 on the motor model)
 CENTRE_EXTRA = 0.1          # added to the theoretical centre distance
 
 # --- Base ---------------------------------------------------------------------------------------------------------
@@ -373,7 +373,8 @@ def pinion(root, bore=SHAFT_BORE):
     body = prisms(root, [gear_outline(PINION_TEETH, GEAR_MODULE, GEAR_BACKLASH, rot=math.pi / PINION_TEETH)], z0, z1 - z0)[0]
     d, flats = bore
     hole = cyl(0, 0, z0 - 1, z1 + 1, d)
-    tbm.booleanOperation(hole, box(-3, 3, -flats / 2, flats / 2, z0 - 1, z1 + 1), INTER)   # double-D
+    # Double-D, flats facing +-X as on the motor model (its flats face the body's centre).
+    tbm.booleanOperation(hole, box(-flats / 2, flats / 2, -3, 3, z0 - 1, z1 + 1), INTER)
     cut(body, hole)
     return move(body, sx, 0, 0)
 
@@ -602,7 +603,7 @@ def test_pinions(root):
         x = 10 + 24 * k
         body = prisms(root, [gear_outline(PINION_TEETH, GEAR_MODULE, GEAR_BACKLASH)], 0, PINION_Z[1] - PINION_Z[0])[0]
         hole = cyl(0, 0, -1, 10, d)
-        tbm.booleanOperation(hole, box(-3, 3, -flats / 2, flats / 2, -1, 10), INTER)
+        tbm.booleanOperation(hole, box(-flats / 2, flats / 2, -3, 3, -1, 10), INTER)
         cut(body, hole)
         for i in range(k + 1):
             a = math.pi / 2 + (i - k / 2) * 0.45

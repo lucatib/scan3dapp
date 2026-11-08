@@ -88,7 +88,8 @@ The motor plugs into the board's white connector. Power comes from the ESP32's U
 Both are fitted to the models in [models/](models) (from [escornabot/3dmodel](https://github.com/escornabot/3dmodel),
 MIT, see `LICENSE-escornabot`). The 28BYJ-48 hangs through the motor plate with its ears on it (M3 screws 35 mm
 apart); its blue cover and wire exit reach 30 mm from the body's centre, and the plate's notch runs to 31 mm. The
-model's shaft is round, so it shows inside the pinion's double-D bore; the real shaft has the flats. The ULN2003
+pinion's double-D bore is turned to the shaft's flats as the model has them (facing the body's centre), and the
+pinion sits only on the 6 mm of flats (29.7–36 mm above the table). The ULN2003
 board (35.1 × 31.5 mm, holes 30.2 × 26.4 mm apart) stands on four 5 mm standoffs beside the motor mount. Boards vary:
 check the hole spacing on `Prova ULN2003` before printing the base.
 
