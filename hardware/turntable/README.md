@@ -175,8 +175,10 @@ ESP32-S3-DevKitC-1. Open the folder in the pioarduino IDE and use Upload, or fro
 `~/.pioarduino/penv/Scripts/pio run -t upload` and then `... pio device monitor` (with `PLATFORMIO_CORE_DIR` set to
 `~/.pioarduino`). Use the board's UART ("COM") USB-C port, both to flash and for the serial commands.
 
-- Button: a short press starts or stops (with a ramp), a long press reverses. The RGB LED is green or blue while
-  turning, by direction.
+- Button: a short press starts or stops, with the ramp; a double press reverses. Held while stopped, it starts and
+  speeds up to full speed (20 s per turn); held while turning, it slows down to the slowest (600 s per turn); on
+  release the speed stays where it got to, about 6 s from end to end. The RGB LED is green or blue while turning, by
+  direction.
 - Commands, one per line, over USB serial at 115200 or over Bluetooth LE: `run`, `stop`, `speed <seconds per turn>`
   (20–600, default 40, also while turning), `accel <deg/s²>` (the ramps, 1–100, default 13), `dir <1|-1>`,
   `reverse`, `turn <degrees>`, `goto <degrees> [1|-1]` (the shorter way, or in the given direction), `zero`,

@@ -1,6 +1,7 @@
 // Scan3D turntable: a 28BYJ-48 on a ULN2003 board turns the platter through a 16:64 gear pair.
 //
-// Button: a short press starts or stops, a long press reverses.
+// Button: a short press starts or stops with the ramp, a double press reverses; holding it while stopped starts and
+// speeds up to full speed, holding it while turning slows down to the slowest speed (the speed reached stays).
 // The same text commands, one per line, over USB serial (115200) and over Bluetooth LE: Nordic UART Service, device
 // "Scan3D Turntable"; write commands to RX 6E400002-..., replies are notified on TX 6E400003-... in chunks of up to
 // 20 bytes, each line ending in \n.
@@ -36,7 +37,9 @@ constexpr float START_RATE = 150;            // half steps/s, from standstill
 constexpr float MIN_ACCEL_DEG = 1, MAX_ACCEL_DEG = 100;  // platter deg/s^2
 
 constexpr uint32_t DEBOUNCE_MS = 25;
-constexpr uint32_t LONG_PRESS_MS = 800;
+constexpr uint32_t DOUBLE_PRESS_MS = 350;  // a second press this soon after the first: reverse
+constexpr uint32_t HOLD_MS = 600;          // held this long: speed up
+constexpr float HOLD_ACCEL_DEG = 3;        // platter deg/s^2 while held: standstill to full speed in about 6 s
 
 constexpr uint8_t HALF_STEP[8] = {0b0001, 0b0011, 0b0010, 0b0110, 0b0100, 0b1100, 0b1000, 0b1001};
 
@@ -116,7 +119,7 @@ float stopDistance() { return (rate * rate - START_RATE * START_RATE) / (2 * acc
 
 void start(Mode m) {
   if (mode == Mode::Stopped) {
-    rate = START_RATE;
+    rate = fminf(START_RATE, targetRate());  // slow speeds start right at their speed
     lastStepUs = micros();
     writeCoils(HALF_STEP[phase]);
   }
@@ -168,10 +171,14 @@ void reverse() {
   showState();
 }
 
+// Short press: start or stop, with the ramp (acted on once no second press follows). Double press: reverse.
+// Hold while stopped: start and speed up to full speed. Hold while turning: slow down to the slowest speed.
+// The speed changes at HOLD_ACCEL_DEG and stays where it got to when the button is released.
 void serviceButton() {
   static bool stable = true, last = true;  // released = HIGH
-  static uint32_t changedMs = 0, pressedMs = 0;
-  static bool longDone = false;
+  static uint32_t changedMs = 0, pressedMs = 0, releasedMs = 0, holdMs = 0;
+  static bool holding = false, speedingUp = false, pendingPress = false, secondPress = false;
+  static float holdRate = 0;
   bool level = digitalRead(BUTTON_PIN);
   uint32_t now = millis();
   if (level != last) {
@@ -180,19 +187,43 @@ void serviceButton() {
   }
   if (level != stable && now - changedMs >= DEBOUNCE_MS) {
     stable = level;
-    if (!stable) {
+    if (!stable) {  // pressed
       pressedMs = now;
-      longDone = false;
-    } else if (!longDone) {
-      if (mode == Mode::Stopped) start(Mode::Running);
-      else requestStop();
+      secondPress = pendingPress && now - releasedMs < DOUBLE_PRESS_MS;
+      pendingPress = false;
+    } else if (holding) {  // released after a hold
+      holding = false;
       printStatus("event");
+    } else if (secondPress) {
+      secondPress = false;
+      reverse();
+      printStatus("event");
+    } else {
+      pendingPress = true;
+      releasedMs = now;
     }
   }
-  if (!stable && !longDone && now - pressedMs >= LONG_PRESS_MS) {
-    longDone = true;
-    reverse();
+  if (pendingPress && stable && now - releasedMs >= DOUBLE_PRESS_MS) {
+    pendingPress = false;
+    if (mode == Mode::Stopped) start(Mode::Running);
+    else requestStop();
     printStatus("event");
+  }
+  if (!stable && now - pressedMs >= HOLD_MS) {
+    if (!holding) {
+      holding = true;
+      secondPress = false;
+      holdMs = now;
+      speedingUp = mode == Mode::Stopped;
+      holdRate = speedingUp ? START_RATE : rate;
+      if (speedingUp) start(Mode::Running);
+      printStatus("event");
+    }
+    float change = HOLD_ACCEL_DEG / DEG_PER_HALF_STEP * (now - holdMs) / 1000.0f;
+    holdMs = now;
+    if (speedingUp) holdRate = fminf(HALF_STEPS_PER_TURN / MIN_SECONDS_PER_TURN, holdRate + change);
+    else holdRate = fmaxf(HALF_STEPS_PER_TURN / MAX_SECONDS_PER_TURN, holdRate - change);
+    secondsPerTurn = HALF_STEPS_PER_TURN / holdRate;
   }
 }
 
