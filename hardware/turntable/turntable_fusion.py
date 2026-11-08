@@ -50,14 +50,19 @@ MOTOR_EAR_T = 0.8           # the ears are flush with the shaft face
 MOTOR_SHAFT_OFFSET = 8.0    # shaft to body centre
 MOTOR_EAR_HOLES = 35.0
 
-# --- ESP32-S3-DevKitC-1 -------------------------------------------------------------------------------------------
-# Pins down. It stands on two ledges under its ends (no pins there), its far end under two corner hooks against a
-# stop, its USB end held down by two snap lips; the wall beside the notch stops it when the cable is pulled out.
-ESP_L, ESP_W, ESP_PCB = 69.0, 25.5, 1.6   # board, without the USB-C overhang
-ESP_FREE_END = 5.5          # pin-free length at each end
+# --- ESP32-S3 devkit (2 x USB-C) ------------------------------------------------------------------------------
+# Measured on the real model, ESP32-S3-WROOM-1_devkit_2xUSBC in the Scan3DTable Fusion project: PCB 57 x 28.3 x 1.5,
+# pin rows 25.4 apart along almost all of its length, the module overhanging the far end by 6.4 mm, two USB-C at the
+# near end. Pins down. It rests on two ribs between the pin rows, stops against a block under the module's overhang,
+# and is held down by four snap lips over its long edges (outside the pins); the wall beside the notch stops it when
+# the cable is pulled out.
+ESP_MODEL_ID = "urn:adsk.wipprod:dm.lineage:Oi68pfRvQISsIDWMEH-G4Q"
+ESP_L, ESP_W, ESP_PCB = 57.0, 28.3, 1.5
+ESP_PIN_X = 12.7            # pin rows, from the board's middle; header plastic 2.54 wide around them
 ESP_UNDER = 21.0            # clear height under the board for the pins and the Dupont plugs
-ESP_USB_X = -111.4          # the board's USB end, just inside the wall
-USB_NOTCH_W = 24.0          # the opening for the plug; narrower than the board
+ESP_USB_X = -111.2          # the board's USB end, just inside the wall
+ESP_SNAPS = (10.0, 46.0)    # snap lips along the board, from its USB end
+USB_NOTCH_W = 25.0          # the opening for the plugs; narrower than the board
 
 # --- Phone stand --------------------------------------------------------------------------------------------------
 # Adjustable cradle: a back plate with two slots, and two jaws with a V groove that take the phone's edges, whatever
@@ -315,31 +320,31 @@ def esp_holder():
     x0, x1, hw = ESP_USB_X, ESP_USB_X + ESP_L, ESP_W / 2
     h = BASE_FLOOR + ESP_UNDER                  # underside of the board
     top = h + ESP_PCB
-    adds = [box(x0, x0 + ESP_FREE_END, -hw, hw, 0, h), box(x1 - ESP_FREE_END, x1, -hw, hw, 0, h),
-            box(x1 + 0.3, x1 + 3.3, -hw, hw, 0, top + 1.5)]
+    rib = ESP_PIN_X - 1.27 - 0.6                # clear of the header plastic and the Dupont plugs
+    adds = [box(x0 + 2, x0 + 8, -rib, rib, 0, h), box(x1 - 9, x1 - 3, -rib, rib, 0, h),
+            box(x1 + 0.3, x1 + 3.3, -hw, hw, 0, top - 0.3)]      # stop: below the module's overhang
     for sy in (-1, 1):
-        y_hook = sorted((sy * 9.8, sy * hw))     # corners only: the module sits between them
-        adds.append(box(x1 - 1.5, x1 + 0.5, y_hook[0], y_hook[1], top + 0.3, top + 1.5))
         y_post = sorted((sy * (hw + 0.2), sy * (hw + 2.2)))
-        y_lip = sorted((sy * (hw - 0.5), sy * (hw + 0.5)))
-        adds += [box(x0 + 0.5, x0 + ESP_FREE_END, y_post[0], y_post[1], 0, top + 0.9),
-                 box(x0 + 0.5, x0 + ESP_FREE_END, y_lip[0], y_lip[1], top + 0.3, top + 0.9)]
+        y_lip = sorted((sy * (hw - 0.6), sy * (hw + 0.2)))       # outside the pins' solder joints
+        for ly in ESP_SNAPS:
+            adds += [box(x0 + ly - 3, x0 + ly + 3, y_post[0], y_post[1], 0, top + 0.9),
+                     box(x0 + ly - 3, x0 + ly + 3, y_lip[0], y_lip[1], top + 0.3, top + 0.9)]
     cuts = [box(-BASE_D, x0, -USB_NOTCH_W / 2, USB_NOTCH_W / 2, h - 3, BASE_TOP + 1)]
     return adds, cuts
 
 
-def esp_dummy():
-    x0, x1, hw = ESP_USB_X, ESP_USB_X + ESP_L, ESP_W / 2
-    h = BASE_FLOOR + ESP_UNDER
-    top = h + ESP_PCB
-    body = union(box(x0, x1, -hw, hw, h, top), box(x1 - 25.5, x1, -9, 9, top, top + 3.2))   # board, WROOM module
-    for yc in (-5.2, 5.2):
-        union(body, box(x0 - 0.8, x0 + 6.5, yc - 4.5, yc + 4.5, top, top + 3.2))             # USB-C, two of them
-    xa, xb = x0 + ESP_FREE_END + 0.5, x1 - ESP_FREE_END - 0.5
-    for sy in (-1, 1):
-        yr = sy * (hw - 1.27)
-        union(body, box(xa, xb, yr - 1.27, yr + 1.27, h - 2.5, h), box(xa, xb, yr - 0.32, yr + 0.32, h - 8.5, h - 2.5))
-    return body
+def esp_model(root):
+    """The real board, from the Fusion project, placed in its holder; a plain box when the file cannot be found."""
+    x0, top = ESP_USB_X, BASE_FLOOR + ESP_UNDER + ESP_PCB
+    m = adsk.core.Matrix3D.create()
+    m.setWithCoordinateSystem(P(x0, 0, top), V(0, -1, 0), V(1, 0, 0), V(0, 0, 1))   # model: USB end at y = 0, top at z = 0
+    f = app.data.findFileById(ESP_MODEL_ID)
+    if f is None:
+        hw = ESP_W / 2
+        return add_part(root, "RIF ESP32-S3 devkit", [box(x0, x0 + ESP_L, -hw, hw, top - ESP_PCB, top)])
+    occ = root.occurrences.addByInsert(f, m, True)
+    occ.transform2 = m
+    return occ
 
 
 def pinion(root, bore=SHAFT_BORE):
@@ -641,10 +646,10 @@ def run(_context):
         ("Pomelli ganasce", [jaw_knob(root, -1, gap), jaw_knob(root, 1, gap)]),
         ("Attacco treppiede", [tripod_adapter(root, tripod_axis_shown())]),
     ]
-    reference = [("RIF motore 28BYJ-48", [motor_dummy()]), ("RIF ESP32-S3-DevKitC-1", [esp_dummy()]),
-                 (f"RIF {name}", [phone_dummy(w, t, h, bump)])]
+    reference = [("RIF motore 28BYJ-48", [motor_dummy()]), (f"RIF {name}", [phone_dummy(w, t, h, bump)])]
 
     for name, bodies in printed + reference + test_parts(root):
         add_part(root, name, bodies)
+    esp_model(root)
     print(f"{len(printed)} printed parts, {len(filled)} filled + {len(rings)} ring inserts; "
           f"stand post at y = {py:.1f} mm")
