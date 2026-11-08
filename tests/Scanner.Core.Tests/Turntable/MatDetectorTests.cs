@@ -117,7 +117,7 @@ public class MatDetectorTests
         float tTable = -eye.Y / direction.Y;
         var p = eye + tTable * direction;
         float r = MathF.Sqrt(p.X * p.X + p.Z * p.Z);
-        if (r > 0.1f) return 140; // the table around the sheet
+        if (r > TurntableMat.PlatterRadius) return 140; // the table around the platter
         for (int i = 0; i < TurntableMat.DotCount; i++)
         {
             float d = Vector3.Distance(p, TurntableMat.DotPosition(i));

@@ -17,8 +17,11 @@ public static class TurntableMat
     public const int DotCount = 36;
     public const int WindowLength = 7;
 
-    /// <summary>Ring radius, metres: fits an A4 sheet with printer margins.</summary>
-    public const float RingRadius = 0.088f;
+    /// <summary>The motorised platter's radius, metres (Ø 240 mm).</summary>
+    public const float PlatterRadius = 0.120f;
+
+    /// <summary>Ring radius, metres: the dots run 8 mm in from the platter's edge, leaving the piece the most room.</summary>
+    public const float RingRadius = PlatterRadius - 0.008f;
 
     public const float DotRadius = 0.0045f;
 
@@ -63,7 +66,7 @@ public static class TurntableMat
     public static string Svg()
     {
         var c = CultureInfo.InvariantCulture;
-        const float page = 200; // mm, square
+        const float page = 2 * PlatterRadius * 1000; // mm, square: the platter's size
         float centre = page / 2;
         var svg = new StringBuilder();
         svg.Append(c, $"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{page}mm\" height=\"{page}mm\" viewBox=\"0 0 {page} {page}\">\n");
