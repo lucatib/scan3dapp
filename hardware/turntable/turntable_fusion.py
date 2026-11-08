@@ -27,6 +27,9 @@ INSERT_CLEAR = 0.15         # radial, between an insert and its pocket
 
 # --- Bearings, axle, gears ----------------------------------------------------------------------------------------
 BEARING_OD = 22.15          # 608, printed bore
+AXLE_HEAD_AF = 13.2         # hex pocket for the M8 bolt's head, pressed in
+SHAFT_BORE = (5.1, 3.1)     # pinion's double-D bore on the 28BYJ-48 shaft (5 mm, flats 3 mm apart)
+MOTOR_BODY_HOLE = 28.8      # the 28BYJ-48 body (28 mm) hangs through the plate
 BEARING_STACK = 14.0        # two 608 on top of each other
 HUB_Z0 = 21.0
 GEAR_MODULE = 1.0
@@ -65,8 +68,9 @@ GROOVE_DEPTH = 4.0
 JAW_T = 10.0                # jaw, across
 JAW_H = 60.0
 JAW_FRONT = 12.0            # jaw reach in front of the phone's middle plane
-JAW_SLOT = (30.0, 55.0)     # bolt positions along each slot, from the plate centre: jaw faces 50..100 mm apart
-PLATE_HALF_W = 62.0
+JAW_SLOT = (27.0, 59.5)     # slot end centres, from the plate centre: with the key, jaw faces 53..100 mm apart
+JAW_KEY = (9.0, 5.2, 3.0)   # on the jaw's back, in the slot (length, height, depth): the jaw slides, cannot turn
+PLATE_HALF_W = 66.0
 PLATE_T = 6.0
 PLATE_H = 30.0
 FOOT_H = 4.0                # the phone stands on the jaws' feet
@@ -264,14 +268,14 @@ def base(root):
     body = cut(cyl(0, 0, 0, BASE_TOP, BASE_D), cyl(0, 0, BASE_FLOOR, BASE_TOP + 1, 2 * r_in))
     # Axle boss: M8x35 hex bolt from below, its head pressed into the hex; the 608 inner races sit on the ring.
     union(body, cyl(0, 0, 0, HUB_Z0 - 1, 20), cyl(0, 0, HUB_Z0 - 1, HUB_Z0, 11.5))
-    cut(body, cyl(0, 0, -1, HUB_Z0 + 1, 8.4), prisms(root, [hexagon(13.2)], -1, 6.5)[0])
+    cut(body, cyl(0, 0, -1, HUB_Z0 + 1, 8.4), prisms(root, [hexagon(AXLE_HEAD_AF)], -1, 6.5)[0])
 
     # Motor mount: plate with the body hanging through it, side walls down to the floor, merged into the wall.
     mx = shaft_x() + MOTOR_SHAFT_OFFSET
     pz0 = MOTOR_PLATE_TOP - 4
     union(body, box(28, 111, -27, 27, pz0, MOTOR_PLATE_TOP),
           box(28, 111, -27, -24, 0, pz0), box(28, 111, 24, 27, 0, pz0))
-    cut(body, cyl(mx, 0, pz0 - 1, MOTOR_PLATE_TOP + 1, 28.8),
+    cut(body, cyl(mx, 0, pz0 - 1, MOTOR_PLATE_TOP + 1, MOTOR_BODY_HOLE),
         box(mx, mx + 24, -9.5, 9.5, pz0 - 1, MOTOR_PLATE_TOP + 1),        # blue wire housing
         cyl(mx, -MOTOR_EAR_HOLES / 2, pz0 - 1, MOTOR_PLATE_TOP + 1, 3.3),
         cyl(mx, MOTOR_EAR_HOLES / 2, pz0 - 1, MOTOR_PLATE_TOP + 1, 3.3))
@@ -292,13 +296,14 @@ def base(root):
     return body
 
 
-def pinion(root):
+def pinion(root, bore=SHAFT_BORE):
     sx = shaft_x()
     z0, z1 = PINION_Z
     body = prisms(root, [gear_outline(PINION_TEETH, GEAR_MODULE, GEAR_BACKLASH, rot=math.pi / PINION_TEETH)], z0, z1 - z0)[0]
-    bore = cyl(0, 0, z0 - 1, z1 + 1, 5.1)
-    tbm.booleanOperation(bore, box(-3, 3, -1.55, 1.55, z0 - 1, z1 + 1), INTER)   # double-D: flats 3 mm apart
-    cut(body, bore)
+    d, flats = bore
+    hole = cyl(0, 0, z0 - 1, z1 + 1, d)
+    tbm.booleanOperation(hole, box(-3, 3, -flats / 2, flats / 2, z0 - 1, z1 + 1), INTER)   # double-D
+    cut(body, hole)
     return move(body, sx, 0, 0)
 
 
@@ -326,6 +331,9 @@ def tower(root):
     # axis and the 8 mm tab rising to it keeps behind the axis (good to 45 degrees).
     body = union(box(-22, 22, py - 45, py + 15, 10, 18), box(-10, 10, py - 12, py + 3, 18, HINGE_Z - 30),
                  box(-4, 4, py - 10, py + 3, HINGE_Z - 32, HINGE_Z), cyl_pts((-4, py, HINGE_Z), (4, py, HINGE_Z), 20))
+    # Skirts down both sides of the arm: the foot slides along it and cannot turn round the bolt.
+    for sx in (-1, 1):
+        union(body, box(min(sx * 15.3, sx * 22), max(sx * 15.3, sx * 22), py - 45, py + 15, 1, 10.1))
     cut(body, cyl(0, py - 35, 0, 30, 6.5), cyl_pts((-6, py, HINGE_Z), (6, py, HINGE_Z), 5.3))
     return body
 
@@ -376,7 +384,9 @@ def jaw(root, sx, gap):
                     FOOT_H, JAW_H)[0]
     # M5 bolt: hex head in a slot open to the groove face, shank out of the back through the plate's slot.
     head = box(min(x_in - sx, xc + sx * 4.1), max(x_in - sx, xc + sx * 4.1), front + 3, front + 6.8, zc - 4.8, zc + 4.8)
-    cut(body, groove, head, cyl_pts((xc, front - 1, zc), (xc, front + 5, zc), 5.3))
+    kl, kh, kd = JAW_KEY
+    union(body, box(xc - kl / 2, xc + kl / 2, front - kd, front + 0.1, zc - kh / 2, zc + kh / 2))
+    cut(body, groove, head, cyl_pts((xc, front - kd - 1, zc), (xc, front + 5, zc), 5.3))
     return move(body, *cradle_origin())
 
 
@@ -413,6 +423,108 @@ def motor_dummy():
     return union(cyl(mx, 0, t - 19, t, 28), box(mx - 3.5, mx + 3.5, -21, 21, t - MOTOR_EAR_T, t),
                  box(mx + 12, mx + 18, -8.5, 8.5, t - 17, t - 1),
                  cyl(sx, 0, t, t + 1.5, 9), cyl(sx, 0, t + 1.5, t + 10, 5))
+
+
+# --- Test prints --------------------------------------------------------------------------------------------------
+# Small pieces to set the fits on your printer before the long prints. Each ladder has three steps, marked with 1, 2
+# and 3 dimples; put the step that fits into the matching parameter above.
+INSERT_TESTS = (0.10, 0.15, 0.20)                   # INSERT_CLEAR
+BEARING_TESTS = (22.0, 22.15, 22.3)                 # BEARING_OD
+AXLE_HEAD_TESTS = (13.0, 13.2, 13.4)                # AXLE_HEAD_AF
+SHAFT_TESTS = ((5.0, 3.0), (5.1, 3.1), (5.2, 3.2))  # SHAFT_BORE
+TESTS_X = 420.0                                     # laid out beside the assembly
+
+
+def dimples(body, x, y, z, n, top=True, pitch=1.6, d=1.0, depth=0.5):
+    """n marks in a row along X centred on (x, y), in the face at height z (top face, or bottom when top is False)."""
+    for i in range(n):
+        xi = x + (i - (n - 1) / 2) * pitch
+        cut(body, cyl(xi, y, z - depth, z + 1, d) if top else cyl(xi, y, z - 1, z + depth, d))
+    return body
+
+
+def test_platter():
+    t = PLATTER_T
+    body = box(0, 66, 0, 32, 0, t)
+    for k in range(3):
+        x = 11 + 22 * k
+        cut(body, cyl(x, 10, t - INSERT_DEPTH, t + 1, DOT_D), cyl(x, 23, t - INSERT_DEPTH, t + 1, DOT_D))
+        union(body, cyl(x, 23, t - INSERT_DEPTH - 0.1, t, HOLE_D))
+        dimples(body, x, 29.8, t, k + 1)
+    return body
+
+
+def test_inserts():
+    out = []
+    for k, c in enumerate(INSERT_TESTS):
+        x = 8 + 14 * k
+        filled = dimples(cyl(x, 0, 0, INSERT_DEPTH, DOT_D - 2 * c), x, 0, 0, k + 1, top=False, pitch=1.4, depth=0.4)
+        ring = cut(cyl(x, 14, 0, INSERT_DEPTH, DOT_D - 2 * c), cyl(x, 14, -1, INSERT_DEPTH + 1, HOLE_D + 2 * c))
+        out += [filled, dimples(ring, x, 14 - 3.4, 0, k + 1, top=False, pitch=1.4, depth=0.4)]
+    return out
+
+
+def test_bearing(root):
+    body = box(0, 90, 0, 56, 0, 8)
+    for k in range(3):
+        x = 15 + 30 * k
+        cut(body, cyl(x, 15, 0.5, 9, BEARING_TESTS[k]), cyl(x, 15, -1, 1, 18),      # 608 from the top, push it out below
+            cyl(x, 40, -1, 9, 8.4), prisms(root, [hexagon(AXLE_HEAD_TESTS[k])], -1, 6.5)[0])  # M8 head from below
+        dimples(body, x, 52, 8, k + 1)
+    return body
+
+
+def test_pinions(root):
+    out = []
+    for k, (d, flats) in enumerate(SHAFT_TESTS):
+        x = 10 + 24 * k
+        body = prisms(root, [gear_outline(PINION_TEETH, GEAR_MODULE, GEAR_BACKLASH)], 0, PINION_Z[1] - PINION_Z[0])[0]
+        hole = cyl(0, 0, -1, 10, d)
+        tbm.booleanOperation(hole, box(-3, 3, -flats / 2, flats / 2, -1, 10), INTER)
+        cut(body, hole)
+        for i in range(k + 1):
+            a = math.pi / 2 + (i - k / 2) * 0.45
+            cut(body, cyl(4.6 * math.cos(a), 4.6 * math.sin(a), PINION_Z[1] - PINION_Z[0] - 0.5, 10, 0.9))
+        out.append(move(body, x, 0, 0))
+    return out
+
+
+def test_motor_plate():
+    body = box(-24, 32, -27, 27, 0, 4)
+    return cut(body, cyl(0, 0, -1, 5, MOTOR_BODY_HOLE), box(0, 24, -9.5, 9.5, -1, 5),
+               cyl(0, -MOTOR_EAR_HOLES / 2, -1, 5, 3.3), cyl(0, MOTOR_EAR_HOLES / 2, -1, 5, 3.3))
+
+
+def test_slots():
+    """The cradle plate's slot, a jaw's bolt-head slot (printed on its outer face, as the jaw) and the arm's channel."""
+    plate = cut(box(0, 40, 0, 24, 0, PLATE_T), box(10, 30, 9.3, 14.7, -1, PLATE_T + 1),
+                cyl(10, 12, -1, PLATE_T + 1, 5.4), cyl(30, 12, -1, PLATE_T + 1, 5.4))
+    # Jaw section, jaw coordinates (face at x = 0, outer side at x = JAW_T, back at y = -10, bolt at z = 15).
+    kl, kh, kd = JAW_KEY
+    jaw_cut = union(box(0, JAW_T, -10, 10, 5, 25), box(JAW_T / 2 - kl / 2, JAW_T / 2 + kl / 2, -10 - kd, -9.9, 15 - kh / 2, 15 + kh / 2))
+    cut(jaw_cut, box(-1, JAW_T / 2 + 4.1, -7, -3.2, 15 - 4.8, 15 + 4.8), cyl_pts((JAW_T / 2, -11 - kd, 15), (JAW_T / 2, -5, 15), 5.3))
+    jaw_piece = frame(jaw_cut, (50, 15, JAW_T), (0, 0, -1), (0, 1, 0), (1, 0, 0))
+    arm_piece = cut(box(80, 110, 0, 30, 0, 10), box(91.75, 98.25, 5, 25, -1, 11), box(89.8, 100.2, -1, 31, -1, 4.5))
+    return [plate, jaw_piece, arm_piece]
+
+
+def test_parts(root):
+    """(name, bodies), laid out in a column beside the assembly."""
+    parts = [
+        ("Prova piatto", [test_platter()]),
+        ("Prova inserti", test_inserts()),
+        ("Prova cuscinetti", [test_bearing(root)]),
+        ("Prova pignoni", test_pinions(root)),
+        ("Prova motore", [move(test_motor_plate(), 24, 27, 0)]),
+        ("Prova asole", test_slots()),
+    ]
+    y = -150.0
+    for _, bodies in parts:
+        lo, hi = min(b.boundingBox.minPoint.y for b in bodies), max(b.boundingBox.maxPoint.y for b in bodies)
+        for b in bodies:
+            move(b, TESTS_X, y - lo * 10, 0)
+        y += (hi - lo) * 10 + 15
+    return parts
 
 
 def run(_context):
@@ -456,5 +568,12 @@ def run(_context):
     for name, bodies in reference:
         add_part(root, name, bodies)
     em.execute(em.createSTEPExportOptions(os.path.join(out_dir, "turntable.step"), root))
+    test_dir = os.path.join(out_dir, "prove")
+    os.makedirs(test_dir, exist_ok=True)
+    for name, bodies in test_parts(root):
+        occ = add_part(root, name, bodies)
+        opts = em.createSTLExportOptions(occ, os.path.join(test_dir, name.replace(" ", "_").lower() + ".stl"))
+        opts.meshRefinement = adsk.fusion.MeshRefinementSettings.MeshRefinementHigh
+        em.execute(opts)
     print(f"{len(printed)} printed parts, {len(filled)} filled + {len(rings)} ring inserts; "
           f"stand post at y = {py:.1f} mm; files in {out_dir}")
