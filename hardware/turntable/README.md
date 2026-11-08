@@ -115,7 +115,12 @@ The motor plugs into the board's white connector. Power comes from the ESP32's U
 
 To run the platter without the app (no Bluetooth or serial), a TTP223 capacitive touch module (15 × 11 mm) stands
 behind the base wall at 150°, beside the ESP32: no hole. Behind it the wall is thinned to 2 mm with a flat face for
-the module's pad, and a ring engraved outside shows where to touch. The module slides down from the top between two
+the module's pad, and a ring engraved outside shows where to touch, with "Start/Stop" engraved to its right (5 mm bold, 0.6 mm deep,
+`TOUCH_LABEL`).
+
+![Start/Stop engraving](start_stop.png)
+
+ The module slides down from the top between two
 rails, its pad against the flat face, lips behind its edges and a ledge under it. Solder its three wires (VCC, I/O,
 GND) at the bottom edge.
 

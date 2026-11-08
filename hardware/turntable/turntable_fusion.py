@@ -76,6 +76,7 @@ ULN_PILOT = 2.5             # M3 self-tapping screw into the standoff
 TOUCH_ANGLE, TOUCH_Z = 150.0, 18.0     # where (from +X, counter-clockwise) and the module's centre height
 TOUCH_WALL = 2.0            # the wall is thinned to this behind the module, with a flat face for its pad
 TTP223 = (11.0, 15.0, 1.6)  # module width, height (stood up, pins at the bottom), thickness
+TOUCH_LABEL = ("Start/Stop", 5.0, 0.6)   # engraved to the right of the ring (seen from outside): text, height, depth
 
 # --- ESP32-S3 devkit (2 x USB-C) ------------------------------------------------------------------------------
 # Measured on the real model, ESP32-S3-WROOM-1_devkit_2xUSBC in the Scan3DTable Fusion project: PCB 57 x 28.3 x 1.5,
@@ -373,6 +374,7 @@ def base(root):
     adds, cuts = touch_mount()
     union(body, *[radial(b, TOUCH_ANGLE) for b in adds])
     cut(body, *[radial(b, TOUCH_ANGLE) for b in cuts])
+    cut(body, *touch_label(root))
 
     # Flat pad for the stand's arm on -Y: two M4 screws, nuts from inside.
     union(body, box(-25, 25, -119, -108, 0, 30))
@@ -410,6 +412,43 @@ def touch_mount(wall_out=None):
     # Flat face: shaves the curved inside of the wall up to its top, so the module slides down onto the ledge.
     cuts = [box(face - 1.0, face, -hw, hw, z0, z0 + 50), ring]
     return adds, cuts
+
+
+def text_prisms(root, text, height, depth):
+    """Bold text in the XY plane, left end at x = 0 and centred on y = 0, extruded from z = 0 by depth."""
+    sk = root.sketches.add(root.xYConstructionPlane)
+    inp = sk.sketchTexts.createInput2(text, height / 10)
+    inp.setAsMultiLine(P(0, -height), P(len(text) * height, height),
+                       adsk.core.HorizontalAlignments.LeftHorizontalAlignment,
+                       adsk.core.VerticalAlignments.MiddleVerticalAlignment, 0)
+    inp.fontName = "Arial"
+    inp.textStyle = adsk.fusion.TextStyles.TextStyleBold
+    st = sk.sketchTexts.add(inp)
+    ext = root.features.extrudeFeatures.addSimple(st, adsk.core.ValueInput.createByReal(depth / 10),
+                                                   adsk.fusion.FeatureOperations.NewBodyFeatureOperation)
+    bodies = [ext.bodies.item(i) for i in range(ext.bodies.count)]
+    out = [tbm.copy(b) for b in bodies]
+    for b in bodies:
+        b.deleteMe()
+    sk.deleteMe()
+    return out
+
+
+def touch_label(root):
+    """The label engraved in the outside of the wall, to the right of the touch ring, at an even depth on the curve."""
+    text, height, depth = TOUCH_LABEL
+    r_out = BASE_D / 2
+    a = math.radians(TOUCH_ANGLE)
+    u = (math.cos(a), math.sin(a), 0)            # radial
+    t = (-math.sin(a), math.cos(a), 0)           # tangential: to the right seen from outside
+    out = []
+    for b in text_prisms(root, text, height, 30):
+        # text x -> along the wall to the right, text y -> up, extrusion -> radially out through the wall
+        frame(b, (u[0] * (r_out - 15) + t[0] * 9, u[1] * (r_out - 15) + t[1] * 9, TOUCH_Z), t, (0, 0, 1), u)
+        shell = cut(cyl(0, 0, TOUCH_Z - 10, TOUCH_Z + 10, 2 * r_out + 2), cyl(0, 0, TOUCH_Z - 11, TOUCH_Z + 11, 2 * (r_out - depth)))
+        tbm.booleanOperation(b, shell, INTER)
+        out.append(b)
+    return out
 
 
 def touch_dummy():
