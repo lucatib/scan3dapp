@@ -38,10 +38,11 @@ CENTRE_EXTRA = 0.1          # added to the theoretical centre distance
 # --- Base ---------------------------------------------------------------------------------------------------------
 BASE_D = 230.0
 BASE_WALL = 2.4
-BASE_FLOOR = 3.0
+BASE_FLOOR = 2.4
 
 # --- 28BYJ-48 -----------------------------------------------------------------------------------------------------
-MOTOR_PLATE_TOP = 19.5      # the ears rest here; the body hangs below, through the floor, 0.7 mm above the table
+MOTOR_BODY_BELOW = 18.0     # the body's bottom below the ears' underside (motor model)
+MOTOR_PLATE_TOP = BASE_FLOOR + 0.5 + MOTOR_BODY_BELOW   # the ears rest here; the body hangs 0.5 mm above the floor
 MOTOR_FLATS = (4.6, 10.6)   # the shaft's flats above the plate (motor model)
 MOTOR_EAR_T = 0.8           # the ears are flush with the shaft face
 MOTOR_SHAFT_OFFSET = 8.0    # shaft to body centre
@@ -338,7 +339,6 @@ def base(root):
     # Motor mount: plate with the body hanging through it, side walls down to the floor, merged into the wall.
     mx = shaft_x() + MOTOR_SHAFT_OFFSET
     pz0 = MOTOR_PLATE_TOP - 4
-    cut(body, cyl(mx, 0, -1, BASE_FLOOR + 1, MOTOR_BODY_HOLE))      # the body goes down through the floor
     union(body, box(28, 111, -27, 27, pz0, MOTOR_PLATE_TOP),
           box(28, 111, -27, -24, 0, pz0), box(28, 111, 24, 27, 0, pz0))
     cut(body, cyl(mx, 0, pz0 - 1, MOTOR_PLATE_TOP + 1, MOTOR_BODY_HOLE),

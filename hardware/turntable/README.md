@@ -60,7 +60,7 @@ marks where the piece must stand. Insert fit is `INSERT_CLEAR` (0.15 mm radial).
 
 | Qty | Item | Where it goes | Bought (price paid per pack) |
 |---|---|---|---|
-| 1 | 28BYJ-48 stepper motor, 5 V | hangs from the motor plate, through the base's floor | [Aihasd, Amazon.it](https://www.amazon.it/dp/B00U744GJU): €9.99 for 3 motors + 3 ULN2003 boards (Jan 2026) |
+| 1 | 28BYJ-48 stepper motor, 5 V | hangs from the motor plate in the base | [Aihasd, Amazon.it](https://www.amazon.it/dp/B00U744GJU): €9.99 for 3 motors + 3 ULN2003 boards (Jan 2026) |
 | 1 | ULN2003 driver board (35 × 31.5 mm, holes 30.2 × 26.4) | on four standoffs in the base | in the motor pack above |
 | 1 | ESP32-S3-WROOM-1 devkit, 2 × USB-C (57 × 28.3 mm), headers soldered pins down | in its holder in the base | [Binghe S3-DevKitC-1 N16R8, Amazon.it](https://www.amazon.it/dp/B0D6B2CYNW): €24.99 for 3 (Jun 2026) |
 | 2 | 608ZZ bearing (8 × 22 × 7) | pressed into the platter's hub | [YAPKOLV, Amazon.it](https://www.amazon.it/dp/B0F6LHYSS8): €7.49 for 12 (Apr 2026) |
@@ -112,7 +112,7 @@ The motor plugs into the board's white connector. Power comes from the ESP32's U
 ![Motor and driver](motore_driver.png)
 
 Both are fitted to the models in [models/](models) (from [escornabot/3dmodel](https://github.com/escornabot/3dmodel),
-MIT, see `LICENSE-escornabot`). The 28BYJ-48 hangs from the motor plate with its ears on it, its body down through a hole in the floor to 1.5 mm above the table (M3 screws 35 mm
+MIT, see `LICENSE-escornabot`). The 28BYJ-48 hangs from the motor plate with its ears on it, its body 0.5 mm above the floor (M3 screws 35 mm
 apart); its blue cover and wire exit reach 30 mm from the body's centre, and the plate's notch runs to 31 mm. The
 pinion's double-D bore is turned to the shaft's flats as the model has them (facing the body's centre), and the
 pinion sits only on the 6 mm of flats (29.7–36 mm above the table). The ULN2003
@@ -167,7 +167,7 @@ ESP32-S3-DevKitC-1. Open the folder in the pioarduino IDE and use Upload, or fro
 
 ## Geometry
 
-- Base 29.5 mm tall, platter top 39.5 mm above the table: the heights follow from the motor (body through the floor, pinion on the shaft's flats, platter 1 mm above the pinion). The platter sits on the upper bearing's outer race and lifts off.
+- Base 30.9 mm tall, platter top 40.9 mm above the table: the heights follow from the motor (body just above the 2.4 mm floor, pinion on the shaft's flats, platter 1 mm above the pinion). The only hole in the bottom is the hex for the axle bolt's head. The platter sits on the upper bearing's outer race and lifts off.
 - Gear module 1, 64 teeth on the platter, 16 on the pinion, centre distance 40.1 mm: 4 motor turns per platter turn,
   about 16303 half steps per platter turn (the motor's gearbox is 63.684:1, not 64).
 - Phone stand: the tower's foot has skirts down both sides of the arm, so it slides along it and cannot turn round
