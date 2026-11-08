@@ -7,6 +7,7 @@ are millimetres; change the parameters and run it again on a new design.
 Layout (z up, table at z = 0, platter centre on the origin): motor on +X, electronics on -X, phone stand on -Y.
 """
 import math
+import os
 
 import adsk.core
 import adsk.fusion
@@ -49,6 +50,18 @@ MOTOR_PLATE_TOP = 25.0      # the ears rest here, the body hangs below
 MOTOR_EAR_T = 0.8           # the ears are flush with the shaft face
 MOTOR_SHAFT_OFFSET = 8.0    # shaft to body centre
 MOTOR_EAR_HOLES = 35.0
+MOTOR_HOUSING = (31.0, 9.5)  # blue cover and wire exit, from the body's centre (reach, half width): the plate's notch
+
+# Reference models (escornabot/3dmodel, MIT, in ./models), placed in the design by the script.
+MODELS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "models")
+MOTOR_MODEL = ("StepMotor_28BYJ-48.step", 7.875, 8.57)  # file, shaft offset and ears' underside in the model
+ULN_MODEL = "DriverBoard_ULN2003.step"                  # PCB centred on the origin, underside at z = 0
+
+# --- ULN2003 board --------------------------------------------------------------------------------------------------
+ULN_POS = (35.0, 68.0)      # board centre in the base, beside the motor mount
+ULN_HOLES = (30.2, 26.4)    # mounting holes (Ø3), measured on the model
+ULN_STANDOFF = 5.0          # above the floor, clear of the solder joints
+ULN_PILOT = 2.5             # M3 self-tapping screw into the standoff
 
 # --- ESP32-S3 devkit (2 x USB-C) ------------------------------------------------------------------------------
 # Measured on the real model, ESP32-S3-WROOM-1_devkit_2xUSBC in the Scan3DTable Fusion project: PCB 57 x 28.3 x 1.5,
@@ -295,13 +308,20 @@ def base(root):
     union(body, box(28, 111, -27, 27, pz0, MOTOR_PLATE_TOP),
           box(28, 111, -27, -24, 0, pz0), box(28, 111, 24, 27, 0, pz0))
     cut(body, cyl(mx, 0, pz0 - 1, MOTOR_PLATE_TOP + 1, MOTOR_BODY_HOLE),
-        box(mx, mx + 24, -9.5, 9.5, pz0 - 1, MOTOR_PLATE_TOP + 1),        # blue wire housing
+        box(mx, mx + MOTOR_HOUSING[0], -MOTOR_HOUSING[1], MOTOR_HOUSING[1], pz0 - 1, MOTOR_PLATE_TOP + 1),
         cyl(mx, -MOTOR_EAR_HOLES / 2, pz0 - 1, MOTOR_PLATE_TOP + 1, 3.3),
         cyl(mx, MOTOR_EAR_HOLES / 2, pz0 - 1, MOTOR_PLATE_TOP + 1, 3.3))
 
     adds, cuts = esp_holder()
     union(body, *adds)
     cut(body, *cuts)
+    # ULN2003 board on four standoffs.
+    ux, uy = ULN_POS
+    for sx in (-1, 1):
+        for sy in (-1, 1):
+            x, y = ux + sx * ULN_HOLES[0] / 2, uy + sy * ULN_HOLES[1] / 2
+            union(body, cyl(x, y, 0, BASE_FLOOR + ULN_STANDOFF, 6.5))
+            cut(body, cyl(x, y, BASE_FLOOR + 0.8, BASE_FLOOR + ULN_STANDOFF + 1, ULN_PILOT))
     # 12 mm panel button.
     a = math.radians(150)
     cut(body, cyl_pts((105 * math.cos(a), 105 * math.sin(a), 22), (125 * math.cos(a), 125 * math.sin(a), 22), 12.2))
@@ -489,6 +509,35 @@ def jaw_knob(root, sx, gap):
     return frame(knob5, (o[0] + xc, o[1] - plate_back(), o[2] + PLATE_H / 2), (1, 0, 0), (0, 0, 1), (0, -1, 0))
 
 
+def import_model(root, name, file, m):
+    """Imports a STEP from ./models as a component placed by m; None when the file is missing."""
+    path = os.path.join(MODELS_DIR, file)
+    if not os.path.exists(path):
+        return None
+    im = app.importManager
+    before = root.occurrences.count
+    im.importToTarget(im.createSTEPImportOptions(path), root)
+    occ = root.occurrences.item(before)
+    occ.component.name = name
+    occ.transform2 = m
+    return occ
+
+
+def motor_model(root):
+    """The real 28BYJ-48: body centre opposite the pinion, shaft towards the platter, ears on the plate."""
+    file, shaft, ears = MOTOR_MODEL
+    m = adsk.core.Matrix3D.create()
+    m.setWithCoordinateSystem(P(shaft_x() + shaft, 0, MOTOR_PLATE_TOP - ears), V(-1, 0, 0), V(0, -1, 0), V(0, 0, 1))
+    if import_model(root, "RIF motore 28BYJ-48", file, m) is None:
+        add_part(root, "RIF motore 28BYJ-48", [motor_dummy()])
+
+
+def uln_model(root):
+    m = adsk.core.Matrix3D.create()
+    m.translation = V(ULN_POS[0] / 10, ULN_POS[1] / 10, (BASE_FLOOR + ULN_STANDOFF) / 10)
+    import_model(root, "RIF ULN2003", ULN_MODEL, m)
+
+
 def motor_dummy():
     sx = shaft_x()
     mx = sx + MOTOR_SHAFT_OFFSET
@@ -597,6 +646,17 @@ def test_esp():
     return move(body, -(wall_in - BASE_WALL), 0, 0)
 
 
+def test_uln():
+    """The ULN2003 standoffs on a thin plate, to check the hole spacing against your board."""
+    hx, hy = ULN_HOLES[0] / 2, ULN_HOLES[1] / 2
+    body = box(-hx - 5, hx + 5, -hy - 5, hy + 5, 0, 2)
+    for sx in (-1, 1):
+        for sy in (-1, 1):
+            union(body, cyl(sx * hx, sy * hy, 0, 2 + ULN_STANDOFF, 6.5))
+            cut(body, cyl(sx * hx, sy * hy, 0.8, 2 + ULN_STANDOFF + 1, ULN_PILOT))
+    return move(body, hx + 5, hy + 5, 0)
+
+
 def test_parts(root):
     """(name, bodies), laid out in a column beside the assembly."""
     parts = [
@@ -607,6 +667,7 @@ def test_parts(root):
         ("Prova motore", [move(test_motor_plate(), 24, 27, 0)]),
         ("Prova asole", test_slots()),
         ("Prova ESP32", [test_esp()]),
+        ("Prova ULN2003", [test_uln()]),
     ]
     y = -150.0
     for _, bodies in parts:
@@ -646,10 +707,12 @@ def run(_context):
         ("Pomelli ganasce", [jaw_knob(root, -1, gap), jaw_knob(root, 1, gap)]),
         ("Attacco treppiede", [tripod_adapter(root, tripod_axis_shown())]),
     ]
-    reference = [("RIF motore 28BYJ-48", [motor_dummy()]), (f"RIF {name}", [phone_dummy(w, t, h, bump)])]
+    reference = [(f"RIF {name}", [phone_dummy(w, t, h, bump)])]
 
     for name, bodies in printed + reference + test_parts(root):
         add_part(root, name, bodies)
     esp_model(root)
+    motor_model(root)
+    uln_model(root)
     print(f"{len(printed)} printed parts, {len(filled)} filled + {len(rings)} ring inserts; "
           f"stand post at y = {py:.1f} mm")
