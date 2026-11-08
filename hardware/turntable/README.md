@@ -48,6 +48,7 @@ face. Also try the M5 and M6 nuts in one Pomello M5 and Pomello M6, which you ne
 | Ganascia sinistra, Ganascia destra | any | outer face on the bed, so the V groove prints without supports |
 | Pomello M6, Pomello M5 | any | nut pocket up; press the nut in |
 | Pomelli ganasce (2) | any | the M5 knob again, one per jaw |
+| Distanziale asse | any | flat (a 1.5 mm ring) |
 | Attacco treppiede | any | block on the bed, nut slot on the side, no supports (optional, see below) |
 
 The dots sit exactly where the paper mat has them (ring Ø176, dots Ø9, holes Ø4.5) and the same way round seen from
@@ -65,6 +66,7 @@ marks where the piece must stand. Insert fit is `INSERT_CLEAR` (0.15 mm radial).
 | 1 | ESP32-S3-WROOM-1 devkit, 2 × USB-C (57 × 28.3 mm), headers soldered pins down | in its holder in the base | [Binghe S3-DevKitC-1 N16R8, Amazon.it](https://www.amazon.it/dp/B0D6B2CYNW): €24.99 for 3 (Jun 2026) |
 | 2 | 608ZZ bearing (8 × 22 × 7) | pressed into the platter's hub | [YAPKOLV, Amazon.it](https://www.amazon.it/dp/B0F6LHYSS8): €7.49 for 12 (Apr 2026) |
 | 1 | M8 × 30 hex bolt | the axle, head pressed into the hex under the base |  |
+| 1 | M8 nylock nut, DIN 985 (6 mm) | on the printed spacer, clamps the bearings' inner races on the axle |  |
 | 2 | M3 × 8 screw + M3 nut | motor ears to the plate |  |
 | 4 | M3 × 6 self-tapping screw | ULN2003 board to its standoffs |  |
 | 2 | M4 × 16 screw + M4 nut | arm to the base (nuts in the pockets inside the base) |  |
@@ -168,7 +170,11 @@ ESP32-S3-DevKitC-1. Open the folder in the pioarduino IDE and use Upload, or fro
 ## Geometry
 
 - The axle: the M8 × 30 bolt's head sits in the hex under the base, its shank goes up through the central boss;
-  the two 608ZZ slide onto it, their inner races on the boss's 11.5 mm ring, and the platter's hub sits over them.
+  the two 608ZZ slide onto it, their inner races on the boss's 11.5 mm ring. On top go the printed `Distanziale asse`
+  (11.5 × 8.4 × 1.5 mm, on the inner race only, clear of the ZZ shields) and an M8 nylock nut (DIN 985): tightened,
+  it clamps both inner races onto the ring and pulls the bolt's head up into its hex, so neither the bearings nor
+  the bolt can move. Then the platter's hub is pressed down over the outer races; it rests on the upper one and
+  lifts off again.
 
   ![Axle and bearings](asse.png)
 

@@ -53,7 +53,11 @@ MOTOR_HOUSING = (31.0, 9.5)  # blue cover and wire exit, from the body's centre 
 PINION_Z = (MOTOR_PLATE_TOP + MOTOR_FLATS[0] + 0.1, MOTOR_PLATE_TOP + MOTOR_FLATS[1] + 0.4)
 PLATTER_Z0 = PINION_Z[1] + 1.0      # platter underside; its top is PLATTER_Z0 + PLATTER_T
 GEAR_Z0 = PINION_Z[0] - 0.5         # platter gear: GEAR_Z0 .. PLATTER_Z0
-HUB_Z0 = PLATTER_Z0 - 2 - BEARING_STACK   # bearings below a 2 mm lip
+# Above the bearings, inside the hub: a printed spacer on the upper inner race and an M8 nylock nut (DIN 985, 6 mm)
+# that clamps both inner races onto the boss's ring and pulls the bolt's head up against its hex.
+AXLE_SPACER = (11.5, 8.4, 1.5)      # od, id, height: touches the inner race only, clear of the ZZ shields
+AXLE_NUT = (13.0, 6.0)              # across flats, height
+HUB_Z0 = PLATTER_Z0 - 22.0          # bearings 14, then spacer and nut in the hub's 16.5 mm bore
 BASE_TOP = PLATTER_Z0 - 2           # the wall stops under the platter's rim
 
 # Reference models (escornabot/3dmodel, MIT, in ./models), placed in the design by the script.
@@ -255,7 +259,7 @@ COLORS = [
     ("Piatto", (240, 240, 235)), ("Inserti", (20, 20, 20)), ("Base", (90, 90, 95)),
     ("Pignone", (230, 120, 30)), ("Pomell", (230, 120, 30)), ("Prova", (230, 120, 30)),
     ("Supporto", (200, 60, 60)), ("RIF iPhone", (40, 40, 50)), ("RIF cuscinetti", (190, 190, 200)),
-    ("RIF vite", (150, 150, 160)),
+    ("RIF vite", (150, 150, 160)), ("RIF dado", (150, 150, 160)), ("Distanziale", (230, 120, 30)),
     ("Braccio", (70, 110, 170)), ("Torre", (70, 110, 170)), ("Ganascia", (70, 110, 170)), ("Attacco", (70, 110, 170)),
 ]
 
@@ -299,7 +303,9 @@ def platter(root):
     gear = prisms(root, [gear_outline(GEAR_TEETH, GEAR_MODULE, GEAR_BACKLASH)], GEAR_Z0, PLATTER_Z0 - GEAR_Z0 + 0.1)[0]
     union(body, gear, cyl(0, 0, HUB_Z0, GEAR_Z0 + 0.1, BEARING_OD + 8))
     # Bearings from below; the upper outer race carries the platter. Clearance above for the axle's end.
-    cut(body, cyl(0, 0, HUB_Z0 - 1, HUB_Z0 + BEARING_STACK, BEARING_OD), cyl(0, 0, HUB_Z0 - 1, top - 3, 10))
+    # The upper outer race carries the platter on a ring between the bearing bore and the 16.5 mm bore above it, where
+    # the spacer and the nut sit.
+    cut(body, cyl(0, 0, HUB_Z0 - 1, HUB_Z0 + BEARING_STACK, BEARING_OD), cyl(0, 0, HUB_Z0 - 1, top - 3, 16.5))
     for x, y, ring in dots():
         cut(body, cyl(x, y, top - INSERT_DEPTH, top + 1, DOT_D))
         if ring:
@@ -585,6 +591,16 @@ def bearing_dummies():
     return out
 
 
+def axle_nut_dummies(root):
+    """The printed spacer and the M8 nylock nut on top of the upper bearing."""
+    od, idd, sh = AXLE_SPACER
+    z = HUB_Z0 + BEARING_STACK
+    spacer = cut(cyl(0, 0, z, z + sh, od), cyl(0, 0, z - 1, z + sh + 1, idd))
+    af, nh = AXLE_NUT
+    nut = cut(prisms(root, [hexagon(af)], z + sh, nh)[0], cyl(0, 0, z, z + sh + nh + 1, 8))
+    return spacer, nut
+
+
 def axle_dummy(root):
     """The M8 x 30 hex bolt: head in the hex under the base, shank up through the boss and the bearings."""
     head = prisms(root, [hexagon(13.0)], 0, 5.3)[0]
@@ -751,6 +767,8 @@ def run(_context):
         ("Pomello M6", [knob6]),
         ("Pomello M5", [knob5]),
     ]
+    spacer, nut = axle_nut_dummies(root)
+    printed.append(("Distanziale asse", [spacer]))
     name, w, t, h, bump = PHONES[0]
     gap = jaw_gap(w, t)
     printed += [
@@ -761,7 +779,7 @@ def run(_context):
         ("Attacco treppiede", [tripod_adapter(root, tripod_axis_shown())]),
     ]
     reference = [(f"RIF {name}", [phone_dummy(w, t, h, bump)]), ("RIF cuscinetti 608ZZ", bearing_dummies()),
-                 ("RIF vite M8x30", [axle_dummy(root)])]
+                 ("RIF vite M8x30", [axle_dummy(root)]), ("RIF dado M8 autobloccante", [nut])]
 
     for name, bodies in printed + reference + test_parts(root):
         add_part(root, name, bodies)
