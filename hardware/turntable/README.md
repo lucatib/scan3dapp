@@ -127,9 +127,14 @@ ESP32-S3-DevKitC-1. Open the folder in the pioarduino IDE and use Upload, or fro
 
 - Button: a short press starts or stops (with a ramp), a long press reverses. The RGB LED is green or blue while
   turning, by direction.
-- Serial at 115200, one command per line: `run`, `stop`, `speed <seconds per turn>` (20–600, default 40),
-  `dir <1|-1>`, `turn <degrees>` (prints `done ...` when it gets there), `zero`, `status`. Replies start with `ok`,
-  `err` or `done` and carry the state, direction, speed and platter angle.
+- Commands, one per line, over USB serial at 115200 or over Bluetooth LE: `run`, `stop`, `speed <seconds per turn>`
+  (20–600, default 40, also while turning), `accel <deg/s²>` (the ramps, 1–100, default 13), `dir <1|-1>`,
+  `reverse`, `turn <degrees>`, `goto <degrees> [1|-1]` (the shorter way, or in the given direction), `zero`,
+  `status`. `turn` and `goto` print `done ...` when they get there. Replies start with `ok`, `err` or `done`, button
+  presses send an `event` line; every line carries `state=`, `dir=`, `speed=`, `accel=` and `angle=`.
+- Bluetooth LE: the board advertises as `Scan3D Turntable` with the Nordic UART Service (`6E400001-B5A3-F393-E0A9-E50E24DCCA9E`).
+  Write commands to RX (`6E400002-...`); replies are notified on TX (`6E400003-...`) in pieces of up to 20 bytes, so
+  join them and split on `\n`. Any BLE UART app (nRF Connect, Serial Bluetooth Terminal) can drive it.
 - The coils are switched off when stopped; the gearbox holds the platter.
 - Steps are counted with the 28BYJ-48's real gearbox ratio (63.684:1), so `turn` and the reported angle are right
   over many turns. The scan itself does not depend on them: the app takes the pose from the dots.
