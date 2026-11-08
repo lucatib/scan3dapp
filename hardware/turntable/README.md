@@ -58,23 +58,23 @@ marks where the piece must stand. Insert fit is `INSERT_CLEAR` (0.15 mm radial).
 
 ### To buy
 
-| Qty | Item | Where it goes |
-|---|---|---|
-| 1 | 28BYJ-48 stepper motor, 5 V | hangs through the motor plate in the base |
-| 1 | ULN2003 driver board (35 × 31.5 mm, holes 30.2 × 26.4) | on four standoffs in the base |
-| 1 | ESP32-S3-WROOM-1 devkit, 2 × USB-C (57 × 28.3 mm), headers soldered pins down | in its holder in the base |
-| 2 | 608ZZ bearing (8 × 22 × 7) | pressed into the platter's hub |
-| 1 | M8 × 35 hex bolt | the axle, head pressed into the hex under the base |
-| 2 | M3 × 8 screw + M3 nut | motor ears to the plate |
-| 4 | M3 × 6 self-tapping screw | ULN2003 board to its standoffs |
-| 2 | M4 × 16 screw + M4 nut | arm to the base (nuts in the pockets inside the base) |
-| 1 | M6 × 25 hex bolt + M6 nut | tower to the arm (head in the arm's channel, nut in the M6 knob) |
-| 1 | M5 × 35 screw + M5 nut | tilt axis (nut in the M5 knob) |
-| 2 | M5 × 20 hex bolt + M5 nut | jaws (head in the jaw, nut in the jaw knob) |
-| 1 | 12 mm momentary panel button | start/stop, in the base wall (optional) |
-| 1 | 1/4"-20 hex nut (7/16" across flats) | tripod adapter (optional) |
-| ~8 | Dupont female–female jumper wires | ESP32 to ULN2003 (IN1–IN4, 5 V, GND) and the button |
-| 1 | USB-C cable and 5 V USB supply | powers everything through the ESP32 |
+| Qty | Item | Where it goes | Bought (price paid per pack) |
+|---|---|---|---|
+| 1 | 28BYJ-48 stepper motor, 5 V | hangs through the motor plate in the base | [Aihasd, Amazon.it](https://www.amazon.it/dp/B00U744GJU): €9.99 for 3 motors + 3 ULN2003 boards (Jan 2026) |
+| 1 | ULN2003 driver board (35 × 31.5 mm, holes 30.2 × 26.4) | on four standoffs in the base | in the motor pack above |
+| 1 | ESP32-S3-WROOM-1 devkit, 2 × USB-C (57 × 28.3 mm), headers soldered pins down | in its holder in the base | [Binghe S3-DevKitC-1 N16R8, Amazon.it](https://www.amazon.it/dp/B0D6B2CYNW): €24.99 for 3 (Jun 2026) |
+| 2 | 608ZZ bearing (8 × 22 × 7) | pressed into the platter's hub | [YAPKOLV, Amazon.it](https://www.amazon.it/dp/B0F6LHYSS8): €7.49 for 12 (Apr 2026) |
+| 1 | M8 × 35 hex bolt | the axle, head pressed into the hex under the base |  |
+| 2 | M3 × 8 screw + M3 nut | motor ears to the plate |  |
+| 4 | M3 × 6 self-tapping screw | ULN2003 board to its standoffs |  |
+| 2 | M4 × 16 screw + M4 nut | arm to the base (nuts in the pockets inside the base) |  |
+| 1 | M6 × 25 hex bolt + M6 nut | tower to the arm (head in the arm's channel, nut in the M6 knob) |  |
+| 1 | M5 × 35 screw + M5 nut | tilt axis (nut in the M5 knob) |  |
+| 2 | M5 × 20 hex bolt + M5 nut | jaws (head in the jaw, nut in the jaw knob) |  |
+| 1 | 12 mm momentary panel button | start/stop, in the base wall (optional) |  |
+| 1 | 1/4"-20 hex nut (7/16" across flats) | tripod adapter (optional) |  |
+| ~8 | Dupont female–female jumper wires | ESP32 to ULN2003 (IN1–IN4, 5 V, GND) and the button |  |
+| 1 | USB-C cable and 5 V USB supply | powers everything through the ESP32 |  |
 
 ### To print
 
