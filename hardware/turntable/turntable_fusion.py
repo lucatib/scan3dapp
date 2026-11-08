@@ -1,0 +1,402 @@
+"""Scan3D motorised turntable: base, platter with dot inserts, gears, and an iPhone 13 Pro stand.
+
+Run it in Fusion on an empty design (Utilities > Scripts and Add-Ins, or through the Fusion MCP). It switches the
+design to direct modelling, builds every part as its own component, and writes one STL per printed part plus a STEP of
+the whole assembly to ./stl next to this file. All dimensions are millimetres; change the parameters and run it again
+on a new design.
+
+Layout (z up, table at z = 0, platter centre on the origin): motor on +X, electronics on -X, phone stand on -Y.
+"""
+import math
+import os
+
+import adsk.core
+import adsk.fusion
+
+# --- Platter and mat ----------------------------------------------------------------------------------------------
+PLATTER_D = 240.0
+PLATTER_Z0 = 37.0           # underside
+PLATTER_T = 8.0             # top at PLATTER_Z0 + PLATTER_T
+RING_R = 88.0               # TurntableMat.RingRadius
+DOT_D = 9.0                 # TurntableMat.DotRadius * 2
+HOLE_D = 4.5                # TurntableMat.HoleRadius * 2
+FREE_R = 76.0               # TurntableMat.FreeRadius: dashed groove, the piece stands inside it
+MAT_CODE = "100100001100101100111101000111011010"   # TurntableMat.Code, 1 = ring dot (with a hole)
+INSERT_DEPTH = 2.4
+INSERT_CLEAR = 0.15         # radial, between an insert and its pocket
+
+# --- Bearings, axle, gears ----------------------------------------------------------------------------------------
+BEARING_OD = 22.15          # 608, printed bore
+BEARING_STACK = 14.0        # two 608 on top of each other
+HUB_Z0 = 21.0
+GEAR_MODULE = 1.0
+GEAR_TEETH = 64
+PINION_TEETH = 16
+GEAR_BACKLASH = 0.15        # tooth thickness taken off each gear, at the pitch circle
+GEAR_Z0 = 28.5              # platter gear: GEAR_Z0 .. PLATTER_Z0
+PINION_Z = (29.0, 36.0)
+CENTRE_EXTRA = 0.1          # added to the theoretical centre distance
+
+# --- Base ---------------------------------------------------------------------------------------------------------
+BASE_D = 230.0
+BASE_WALL = 2.4
+BASE_FLOOR = 3.0
+BASE_TOP = 35.0
+
+# --- 28BYJ-48 -----------------------------------------------------------------------------------------------------
+MOTOR_PLATE_TOP = 25.0      # the ears rest here, the body hangs below
+MOTOR_EAR_T = 0.8           # the ears are flush with the shaft face
+MOTOR_SHAFT_OFFSET = 8.0    # shaft to body centre
+MOTOR_EAR_HOLES = 35.0
+
+# --- Phone stand --------------------------------------------------------------------------------------------------
+PHONE_W, PHONE_T, PHONE_H = 71.5, 7.65, 146.7     # iPhone 13 Pro, no case
+PHONE_CLEAR_W, PHONE_CLEAR_T = 0.8, 0.7
+CRADLE_WALL = 3.0           # side rails
+CRADLE_LIP = 2.5            # face lips, front and back
+CRADLE_LIP_OVER = 3.0       # how far the lips reach over the screen / back
+CRADLE_H = 50.0
+HINGE_Z = 70.0              # tilt axis height above the table
+HINGE_BACK = 13.0           # tilt axis behind the cradle's back face (the M5 knob, Ø24, has to clear it)
+CAMERA_DISTANCE = 250.0     # default phone position: platter centre to the phone's face
+ARM_LEN = 240.0
+ARM_SLOT = (-355.0, -200.0)
+
+app = adsk.core.Application.get()
+tbm = adsk.fusion.TemporaryBRepManager.get()
+UNION = adsk.fusion.BooleanTypes.UnionBooleanType
+DIFF = adsk.fusion.BooleanTypes.DifferenceBooleanType
+INTER = adsk.fusion.BooleanTypes.IntersectionBooleanType
+
+
+def P(x, y, z=0.0):
+    return adsk.core.Point3D.create(x / 10, y / 10, z / 10)
+
+
+def V(x, y, z):
+    return adsk.core.Vector3D.create(x, y, z)
+
+
+def cyl(x, y, z0, z1, d):
+    return tbm.createCylinderOrCone(P(x, y, z0), d / 20, P(x, y, z1), d / 20)
+
+
+def cyl_pts(p0, p1, d):
+    return tbm.createCylinderOrCone(P(*p0), d / 20, P(*p1), d / 20)
+
+
+def box(x0, x1, y0, y1, z0, z1):
+    obb = adsk.core.OrientedBoundingBox3D.create(
+        P((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2), V(1, 0, 0), V(0, 1, 0),
+        (x1 - x0) / 10, (y1 - y0) / 10, (z1 - z0) / 10)
+    return tbm.createBox(obb)
+
+
+def union(a, *bs):
+    for b in bs:
+        tbm.booleanOperation(a, b, UNION)
+    return a
+
+
+def cut(a, *bs):
+    for b in bs:
+        tbm.booleanOperation(a, b, DIFF)
+    return a
+
+
+def move(t, dx, dy, dz):
+    m = adsk.core.Matrix3D.create()
+    m.translation = V(dx / 10, dy / 10, dz / 10)
+    tbm.transform(t, m)
+    return t
+
+
+def frame(t, origin, xa, ya, za):
+    """Maps the body's local axes onto xa, ya, za at origin (mm)."""
+    m = adsk.core.Matrix3D.create()
+    m.setWithCoordinateSystem(P(*origin), V(*xa), V(*ya), V(*za))
+    tbm.transform(t, m)
+    return t
+
+
+def prisms(root, loops, z0, h):
+    """Extrudes closed polygons (lists of (x, y) mm) from z0 up by h; one temporary body per loop."""
+    sk = root.sketches.add(root.xYConstructionPlane)
+    sk.isComputeDeferred = True
+    lines = sk.sketchCurves.sketchLines
+    for loop in loops:
+        pts = [adsk.core.Point3D.create(x / 10, y / 10, 0) for x, y in loop]
+        first = prev = None
+        for i in range(len(pts)):
+            a = prev.endSketchPoint if prev else pts[0]
+            b = first.startSketchPoint if i == len(pts) - 1 else pts[i + 1]
+            prev = lines.addByTwoPoints(a, b)
+            first = first or prev
+    sk.isComputeDeferred = False
+    profiles = adsk.core.ObjectCollection.create()
+    for pr in sk.profiles:
+        profiles.add(pr)
+    ext = root.features.extrudeFeatures.addSimple(
+        profiles, adsk.core.ValueInput.createByReal(h / 10),
+        adsk.fusion.FeatureOperations.NewBodyFeatureOperation)
+    bodies = [ext.bodies.item(i) for i in range(ext.bodies.count)]
+    out = [move(tbm.copy(b), 0, 0, z0) for b in bodies]
+    for b in bodies:
+        b.deleteMe()
+    sk.deleteMe()
+    return out
+
+
+def pol(r, a):
+    return (r * math.cos(a), r * math.sin(a))
+
+
+def hexagon(af):
+    r = af / math.sqrt(3)
+    return [pol(r, math.pi / 6 + i * math.pi / 3) for i in range(6)]
+
+
+def gear_outline(z, m, backlash, rot=0.0, flank_pts=8, root_pts=4):
+    """Involute spur gear, 20 degrees; tooth 0 points along +X (turned by rot). Radial flank below the base circle."""
+    a0 = math.radians(20)
+    r = m * z / 2
+    ra, rf, rb = r + m, r - 1.25 * m, r * math.cos(a0)
+
+    def inv(a):
+        return math.tan(a) - a
+
+    half_pitch = math.pi / (2 * z) - (backlash / 2) / r
+
+    def half(radius):
+        return half_pitch + inv(a0) - inv(math.acos(rb / max(radius, rb)))
+
+    r0 = max(rf, rb)
+    radii = [r0 + (ra - r0) * i / flank_pts for i in range(flank_pts + 1)]
+    pts = []
+    for k in range(z):
+        th = rot + 2 * math.pi * k / z
+        if rf < rb:
+            pts.append(pol(rf, th - half(rb)))
+        pts += [pol(R, th - half(R)) for R in radii]
+        pts += [pol(R, th + half(R)) for R in reversed(radii)]
+        if rf < rb:
+            pts.append(pol(rf, th + half(rb)))
+        a1, a2 = th + half(r0), th + 2 * math.pi / z - half(r0)
+        pts += [pol(rf, a1 + (a2 - a1) * j / root_pts) for j in range(1, root_pts)]
+    return pts
+
+
+def dots():
+    """(x, y, is_ring) of every mat dot, laid out so that seen from above the platter matches the printed mat."""
+    out = []
+    for i, c in enumerate(MAT_CODE):
+        a = 2 * math.pi * i / len(MAT_CODE)
+        # The SVG draws mat +Z downwards on paper; Fusion's top view has +Y up, so y = -sin.
+        out.append((RING_R * math.cos(a), -RING_R * math.sin(a), c == "1"))
+    return out
+
+
+def add_part(root, name, bodies):
+    occ = root.occurrences.addNewComponent(adsk.core.Matrix3D.create())
+    comp = occ.component
+    comp.name = name
+    for i, b in enumerate(bodies):
+        body = comp.bRepBodies.add(b)
+        body.name = name if len(bodies) == 1 else f"{name} {i + 1}"
+    return occ
+
+
+# --- Parts --------------------------------------------------------------------------------------------------------
+
+def platter(root):
+    top = PLATTER_Z0 + PLATTER_T
+    body = cyl(0, 0, PLATTER_Z0, top, PLATTER_D)
+    gear = prisms(root, [gear_outline(GEAR_TEETH, GEAR_MODULE, GEAR_BACKLASH)], GEAR_Z0, PLATTER_Z0 - GEAR_Z0 + 0.1)[0]
+    union(body, gear, cyl(0, 0, HUB_Z0, GEAR_Z0 + 0.1, BEARING_OD + 8))
+    # Bearings from below; the upper outer race carries the platter. Clearance above for the axle's end.
+    cut(body, cyl(0, 0, HUB_Z0 - 1, HUB_Z0 + BEARING_STACK, BEARING_OD), cyl(0, 0, HUB_Z0 - 1, top - 3, 10))
+    for x, y, ring in dots():
+        cut(body, cyl(x, y, top - INSERT_DEPTH, top + 1, DOT_D))
+        if ring:
+            union(body, cyl(x, y, top - INSERT_DEPTH - 0.1, top, HOLE_D))
+    dashes = 60
+    loops = []
+    for k in range(dashes):
+        a0 = 2 * math.pi * k / dashes
+        arc = [a0 + (math.pi / dashes) * j / 4 for j in range(5)]
+        loops.append([pol(FREE_R + 0.4, a) for a in arc] + [pol(FREE_R - 0.4, a) for a in reversed(arc)])
+    cut(body, *prisms(root, loops, top - 0.4, 1.0))
+    return body
+
+
+def inserts():
+    top = PLATTER_Z0 + PLATTER_T
+    filled, rings = [], []
+    for x, y, ring in dots():
+        d = cyl(x, y, top - INSERT_DEPTH, top, DOT_D - 2 * INSERT_CLEAR)
+        if ring:
+            rings.append(cut(d, cyl(x, y, top - INSERT_DEPTH - 1, top + 1, HOLE_D + 2 * INSERT_CLEAR)))
+        else:
+            filled.append(d)
+    return filled, rings
+
+
+def shaft_x():
+    return GEAR_MODULE * (GEAR_TEETH + PINION_TEETH) / 2 + CENTRE_EXTRA
+
+
+def base(root):
+    r_in = BASE_D / 2 - BASE_WALL
+    body = cut(cyl(0, 0, 0, BASE_TOP, BASE_D), cyl(0, 0, BASE_FLOOR, BASE_TOP + 1, 2 * r_in))
+    # Axle boss: M8x35 hex bolt from below, its head pressed into the hex; the 608 inner races sit on the ring.
+    union(body, cyl(0, 0, 0, HUB_Z0 - 1, 20), cyl(0, 0, HUB_Z0 - 1, HUB_Z0, 11.5))
+    cut(body, cyl(0, 0, -1, HUB_Z0 + 1, 8.4), prisms(root, [hexagon(13.2)], -1, 6.5)[0])
+
+    # Motor mount: plate with the body hanging through it, side walls down to the floor, merged into the wall.
+    mx = shaft_x() + MOTOR_SHAFT_OFFSET
+    pz0 = MOTOR_PLATE_TOP - 4
+    union(body, box(28, 111, -27, 27, pz0, MOTOR_PLATE_TOP),
+          box(28, 111, -27, -24, 0, pz0), box(28, 111, 24, 27, 0, pz0))
+    cut(body, cyl(mx, 0, pz0 - 1, MOTOR_PLATE_TOP + 1, 28.8),
+        box(mx, mx + 24, -9.5, 9.5, pz0 - 1, MOTOR_PLATE_TOP + 1),        # blue wire housing
+        cyl(mx, -MOTOR_EAR_HOLES / 2, pz0 - 1, MOTOR_PLATE_TOP + 1, 3.3),
+        cyl(mx, MOTOR_EAR_HOLES / 2, pz0 - 1, MOTOR_PLATE_TOP + 1, 3.3))
+
+    # ESP32-S3-DevKitC-1 on two risers between its pin rows, USB-C ends at the wall.
+    union(body, box(-106, -102, -9, 9, 0, 17), box(-50, -46, -9, 9, 0, 17))
+    cut(body, box(-120, -105, -16, 16, 12, 28))
+    # 12 mm panel button.
+    a = math.radians(150)
+    cut(body, cyl_pts((105 * math.cos(a), 105 * math.sin(a), 22), (125 * math.cos(a), 125 * math.sin(a), 22), 12.2))
+
+    # Flat pad for the stand's arm on -Y: two M4 screws, nuts from inside.
+    union(body, box(-25, 25, -119, -108, 0, 30))
+    for x in (-15, 15):
+        cut(body, cyl_pts((x, -125, 15), (x, -100, 15), 4.3))
+        nut = prisms(root, [hexagon(7.1)], 0, 3.7)[0]
+        cut(body, frame(nut, (x, -111.6, 15), (1, 0, 0), (0, 0, -1), (0, 1, 0)))
+    return body
+
+
+def pinion(root):
+    sx = shaft_x()
+    z0, z1 = PINION_Z
+    body = prisms(root, [gear_outline(PINION_TEETH, GEAR_MODULE, GEAR_BACKLASH, rot=math.pi / PINION_TEETH)], z0, z1 - z0)[0]
+    bore = cyl(0, 0, z0 - 1, z1 + 1, 5.1)
+    tbm.booleanOperation(bore, box(-3, 3, -1.55, 1.55, z0 - 1, z1 + 1), INTER)   # double-D: flats 3 mm apart
+    cut(body, bore)
+    return move(body, sx, 0, 0)
+
+
+def post_y():
+    """The tilt axis, so that the phone's face towards the platter is CAMERA_DISTANCE from its centre."""
+    return -CAMERA_DISTANCE - PHONE_T / 2 - (PHONE_T + PHONE_CLEAR_T) / 2 - CRADLE_LIP - HINGE_BACK
+
+
+def arm(root):
+    y_end = -125 - ARM_LEN
+    body = union(box(-25, 25, -125, -119, 0, 30), box(-15, 15, y_end, -119, 0, 10))
+    gusset = prisms(root, [[(-125, 10), (-125, 30), (-150, 10)]], 0, 30)[0]
+    union(body, frame(gusset, (-15, 0, 0), (0, 1, 0), (0, 0, 1), (1, 0, 0)))
+    for x in (-15, 15):
+        cut(body, cyl_pts((x, -130, 15), (x, -110, 15), 4.3))
+    s0, s1 = ARM_SLOT
+    cut(body, box(-3.25, 3.25, s0, s1, -1, 11), cyl(0, s0, -1, 11, 6.5), cyl(0, s1, -1, 11, 6.5),
+        box(-5.2, 5.2, y_end - 1, s1 + 3, -1, 4.5))      # channel for the M6 head, open at the far end
+    return body
+
+
+def tower(root):
+    py = post_y()
+    # Tilted forward, the cradle and the phone's bottom swing back towards the post: the post stops well below the
+    # axis and the 8 mm tab rising to it keeps behind the axis (good to 45 degrees).
+    body = union(box(-22, 22, py - 45, py + 15, 10, 18), box(-10, 10, py - 12, py + 3, 18, HINGE_Z - 30),
+                 box(-4, 4, py - 10, py + 3, HINGE_Z - 32, HINGE_Z), cyl_pts((-4, py, HINGE_Z), (4, py, HINGE_Z), 20))
+    cut(body, cyl(0, py - 35, 0, 30, 6.5), cyl_pts((-6, py, HINGE_Z), (6, py, HINGE_Z), 5.3))
+    return body
+
+
+def cradle_origin():
+    """World position of the cradle's local origin: slot centre, bottom of the ledge."""
+    st = (PHONE_T + PHONE_CLEAR_T) / 2
+    return (0, post_y() + st + CRADLE_LIP + HINGE_BACK, HINGE_Z - 12)
+
+
+def cradle():
+    sw = (PHONE_W + PHONE_CLEAR_W) / 2
+    st = (PHONE_T + PHONE_CLEAR_T) / 2
+    ow, ot = sw + CRADLE_WALL, st + CRADLE_LIP
+    body = box(-ow, ow, -ot, ot, 0, CRADLE_H + 3)
+    cut(body, box(-sw, sw, -st, st, 3, CRADLE_H + 10),                          # the phone
+        box(-sw + CRADLE_LIP_OVER, sw - CRADLE_LIP_OVER, -ot - 1, ot + 1, 8, CRADLE_H + 10),   # leave only lips
+        box(-8, 8, -ot - 0.1, ot + 0.1, -1, 9))                                  # Lightning cable
+    hy = -ot - HINGE_BACK
+    for sx in (-1, 1):
+        x0, x1 = sorted((sx * 4.2, sx * 9.2))
+        union(body, box(x0, x1, hy, -ot + 0.5, 2, 22), cyl_pts((x0, hy, 12), (x1, hy, 12), 20))
+    cut(body, cyl_pts((-10, hy, 12), (10, hy, 12), 5.3))
+    return move(body, *cradle_origin())
+
+
+def knob(root, d, h, nut_af, nut_depth, hole_d):
+    body = cyl(0, 0, 0, h, d)
+    for k in range(8):
+        x, y = pol(d / 2 + 2, 2 * math.pi * k / 8)
+        cut(body, cyl(x, y, -1, h + 1, 8))
+    cut(body, cyl(0, 0, -1, h + 1, hole_d), prisms(root, [hexagon(nut_af)], h - nut_depth, nut_depth + 1)[0])
+    return body
+
+
+def phone_dummy():
+    st = PHONE_T / 2
+    body = box(-PHONE_W / 2, PHONE_W / 2, -st, st, 3, 3 + PHONE_H)
+    top = 3 + PHONE_H
+    union(body, box(-PHONE_W / 2 + 1, -PHONE_W / 2 + 38, -st - 3.5, -st + 0.1, top - 38, top - 1))  # camera bump, back
+    return move(body, *cradle_origin())
+
+
+def motor_dummy():
+    sx = shaft_x()
+    mx = sx + MOTOR_SHAFT_OFFSET
+    t = MOTOR_PLATE_TOP + MOTOR_EAR_T      # shaft face
+    return union(cyl(mx, 0, t - 19, t, 28), box(mx - 3.5, mx + 3.5, -21, 21, t - MOTOR_EAR_T, t),
+                 box(mx + 12, mx + 18, -8.5, 8.5, t - 17, t - 1),
+                 cyl(sx, 0, t, t + 1.5, 9), cyl(sx, 0, t + 1.5, t + 10, 5))
+
+
+def run(_context):
+    design = adsk.fusion.Design.cast(app.activeProduct)
+    design.designType = adsk.fusion.DesignTypes.DirectDesignType
+    root = design.rootComponent
+
+    filled, rings = inserts()
+    py = post_y()
+    knob6 = move(knob(root, 30, 12, 10.2, 5.5, 6.5), 0, py - 35, 18)
+    knob5 = frame(knob(root, 24, 10, 8.2, 4.5, 5.3), (9.7, py, HINGE_Z), (0, 1, 0), (0, 0, 1), (1, 0, 0))
+    printed = [
+        ("Base", [base(root)]),
+        ("Piatto", [platter(root)]),
+        ("Inserti pieni", filled),
+        ("Inserti anello", rings),
+        ("Pignone", [pinion(root)]),
+        ("Braccio", [arm(root)]),
+        ("Torre", [tower(root)]),
+        ("Supporto iPhone", [cradle()]),
+        ("Pomello M6", [knob6]),
+        ("Pomello M5", [knob5]),
+    ]
+    reference = [("RIF motore 28BYJ-48", [motor_dummy()]), ("RIF iPhone 13 Pro", [phone_dummy()])]
+
+    out_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "stl")
+    os.makedirs(out_dir, exist_ok=True)
+    em = design.exportManager
+    for name, bodies in printed:
+        occ = add_part(root, name, bodies)
+        opts = em.createSTLExportOptions(occ, os.path.join(out_dir, name.replace(" ", "_").lower() + ".stl"))
+        opts.meshRefinement = adsk.fusion.MeshRefinementSettings.MeshRefinementHigh
+        em.execute(opts)
+    for name, bodies in reference:
+        add_part(root, name, bodies)
+    em.execute(em.createSTEPExportOptions(os.path.join(out_dir, "turntable.step"), root))
+    print(f"{len(printed)} printed parts, {len(filled)} filled + {len(rings)} ring inserts; "
+          f"stand post at y = {py:.1f} mm; files in {out_dir}")
