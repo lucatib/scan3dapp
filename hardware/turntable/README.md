@@ -50,6 +50,22 @@ marks where the piece must stand. Insert fit is `INSERT_CLEAR` (0.15 mm radial).
 
 The motor plugs into the board's white connector. Power comes from the ESP32's USB-C.
 
+## Firmware
+
+[firmware/](firmware) is a PlatformIO project on the pioarduino platform 55.03.312 (Arduino core 3.3) for the
+ESP32-S3-DevKitC-1. Open the folder in the pioarduino IDE and use Upload, or from that folder run
+`~/.pioarduino/penv/Scripts/pio run -t upload` and then `... pio device monitor` (with `PLATFORMIO_CORE_DIR` set to
+`~/.pioarduino`). Use the board's UART ("COM") USB-C port, both to flash and for the serial commands.
+
+- Button: a short press starts or stops (with a ramp), a long press reverses. The RGB LED is green or blue while
+  turning, by direction.
+- Serial at 115200, one command per line: `run`, `stop`, `speed <seconds per turn>` (20–600, default 40),
+  `dir <1|-1>`, `turn <degrees>` (prints `done ...` when it gets there), `zero`, `status`. Replies start with `ok`,
+  `err` or `done` and carry the state, direction, speed and platter angle.
+- The coils are switched off when stopped; the gearbox holds the platter.
+- Steps are counted with the 28BYJ-48's real gearbox ratio (63.684:1), so `turn` and the reported angle are right
+  over many turns. The scan itself does not depend on them: the app takes the pose from the dots.
+
 ## Geometry
 
 - Platter top 45 mm above the table; the platter sits on the upper bearing's outer race and lifts off.
