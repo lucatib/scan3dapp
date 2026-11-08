@@ -72,7 +72,7 @@ marks where the piece must stand. Insert fit is `INSERT_CLEAR` (0.15 mm radial).
 | 1 | M6 × 25 hex bolt + M6 nut | tower to the arm (head in the arm's channel, nut in the M6 knob) |  |
 | 1 | M5 × 35 screw + M5 nut | tilt axis (nut in the M5 knob) |  |
 | 2 | M5 × 20 hex bolt + M5 nut | jaws (head in the jaw, nut in the jaw knob) |  |
-| 1 | 12 mm momentary panel button | start/stop, in the base wall (optional) |  |
+| 1 | 12 mm momentary panel button (normally open, wall up to ~5 mm) | start/stop through the base wall, nut on the flat seat inside |  |
 | 1 | 1/4"-20 hex nut (7/16" across flats) | tripod adapter (optional) |  |
 | ~8 | Dupont female–female jumper wires | ESP32 to ULN2003 (IN1–IN4, 5 V, GND) and the button |  |
 | 1 | USB-C cable and 5 V USB supply | powers everything through the ESP32 |  |
@@ -107,6 +107,16 @@ PLA or PETG. Volumes are of the solid parts as modelled; with the usual walls an
 | GPIO 15 / GND | button (internal pull-up) |
 
 The motor plugs into the board's white connector. Power comes from the ESP32's USB-C.
+
+## Start/stop button
+
+![Start/stop button](pulsante.png)
+
+To run the platter without the app (no Bluetooth or serial), a 12 mm momentary panel button goes through the base
+wall at 150°, beside the ESP32, 22 mm up: under the platter's rim but within reach from the side. Inside the wall a
+flat seat (4.5 mm thick at the hole) takes its nut. Its two tags go to GPIO 15 and GND (see Wiring); the firmware
+starts or stops the platter on a short press, with a ramp, and reverses it on a long press. Move it with
+`BUTTON_ANGLE` and `BUTTON_Z`.
 
 ## Motor and driver
 

@@ -72,6 +72,11 @@ ULN_HOLES = (30.2, 26.4)    # mounting holes (Ø3), measured on the model
 ULN_STANDOFF = 5.0          # above the floor, clear of the solder joints
 ULN_PILOT = 2.5             # M3 self-tapping screw into the standoff
 
+# --- Start/stop button ----------------------------------------------------------------------------------------------
+BUTTON_ANGLE, BUTTON_Z = 150.0, 22.0   # where it goes through the wall (from +X, counter-clockwise), centre height
+BUTTON_HOLE = 12.2          # 12 mm momentary panel button
+BUTTON_SEAT_R = 110.5       # its nut tightens on this flat face inside the wall: 4.5 mm to the outside
+
 # --- ESP32-S3 devkit (2 x USB-C) ------------------------------------------------------------------------------
 # Measured on the real model, ESP32-S3-WROOM-1_devkit_2xUSBC in the Scan3DTable Fusion project: PCB 57 x 28.3 x 1.5,
 # pin rows 25.4 apart along almost all of its length, the module overhanging the far end by 6.4 mm, two USB-C at the
@@ -260,7 +265,7 @@ COLORS = [
     ("Piatto", (240, 240, 235)), ("Inserti", (20, 20, 20)), ("Base", (90, 90, 95)),
     ("Pignone", (230, 120, 30)), ("Pomell", (230, 120, 30)), ("Prova", (230, 120, 30)),
     ("Supporto", (200, 60, 60)), ("RIF iPhone", (40, 40, 50)), ("RIF cuscinetti", (190, 190, 200)),
-    ("RIF vite", (150, 150, 160)), ("Dado", (230, 120, 30)),
+    ("RIF vite", (150, 150, 160)), ("Dado", (230, 120, 30)), ("RIF pulsante", (200, 40, 40)),
     ("Braccio", (70, 110, 170)), ("Torre", (70, 110, 170)), ("Ganascia", (70, 110, 170)), ("Attacco", (70, 110, 170)),
 ]
 
@@ -364,9 +369,10 @@ def base(root):
             x, y = ux + sx * ULN_HOLES[0] / 2, uy + sy * ULN_HOLES[1] / 2
             union(body, cyl(x, y, 0, BASE_FLOOR + ULN_STANDOFF, 6.5))
             cut(body, cyl(x, y, BASE_FLOOR + 0.8, BASE_FLOOR + ULN_STANDOFF + 1, ULN_PILOT))
-    # 12 mm panel button.
-    a = math.radians(150)
-    cut(body, cyl_pts((105 * math.cos(a), 105 * math.sin(a), 22), (125 * math.cos(a), 125 * math.sin(a), 22), 12.2))
+    # Start/stop: a 12 mm panel button through the wall, its nut on a flat seat inside.
+    seat, hole = button_mount()
+    union(body, seat)
+    cut(body, hole)
 
     # Flat pad for the stand's arm on -Y: two M4 screws, nuts from inside.
     union(body, box(-25, 25, -119, -108, 0, 30))
@@ -375,6 +381,29 @@ def base(root):
         nut = prisms(root, [hexagon(7.1)], 0, 3.7)[0]
         cut(body, frame(nut, (x, -111.6, 15), (1, 0, 0), (0, 0, -1), (0, 1, 0)))
     return body
+
+
+def radial(t, angle):
+    """Places a body built with +X as the radial direction at angle (degrees) round the platter axis."""
+    a = math.radians(angle)
+    return frame(t, (0, 0, 0), (math.cos(a), math.sin(a), 0), (-math.sin(a), math.cos(a), 0), (0, 0, 1))
+
+
+def button_mount():
+    """(seat to add, hole to cut) for the start/stop button, in base coordinates."""
+    r_wall = BASE_D / 2 - BASE_WALL
+    seat = box(BUTTON_SEAT_R, r_wall + 0.5, -10, 10, BUTTON_Z - 9, min(BUTTON_Z + 9, BASE_TOP))
+    hole = cyl_pts((BUTTON_SEAT_R - 5, 0, BUTTON_Z), (BASE_D / 2 + 5, 0, BUTTON_Z), BUTTON_HOLE)
+    return radial(seat, BUTTON_ANGLE), radial(hole, BUTTON_ANGLE)
+
+
+def button_dummy():
+    """A generic 12 mm momentary panel button: flange and plunger outside, threaded body, nut and tags inside."""
+    r, z = BASE_D / 2, BUTTON_Z
+    body = union(cyl_pts((r, 0, z), (r + 2, 0, z), 15), cyl_pts((r + 2, 0, z), (r + 4, 0, z), 9),
+                 cyl_pts((r - 19, 0, z), (r, 0, z), 11.9), cyl_pts((BUTTON_SEAT_R - 2.5, 0, z), (BUTTON_SEAT_R, 0, z), 15),
+                 box(r - 23, r - 19, -2.5, -1.5, z - 1.5, z + 1.5), box(r - 23, r - 19, 1.5, 2.5, z - 1.5, z + 1.5))
+    return radial(body, BUTTON_ANGLE)
 
 
 def esp_holder():
@@ -777,7 +806,7 @@ def run(_context):
         ("Pomelli ganasce", [jaw_knob(root, -1, gap), jaw_knob(root, 1, gap)]),
         ("Attacco treppiede", [tripod_adapter(root, tripod_axis_shown())]),
     ]
-    reference = [(f"RIF {name}", [phone_dummy(w, t, h, bump)]), ("RIF cuscinetti 608ZZ", bearing_dummies()),
+    reference = [(f"RIF {name}", [phone_dummy(w, t, h, bump)]), ("RIF pulsante 12 mm", [button_dummy()]), ("RIF cuscinetti 608ZZ", bearing_dummies()),
                  ("RIF vite M8x30", [axle_dummy(root)])]
 
     for name, bodies in printed + reference + test_parts(root):
