@@ -46,6 +46,7 @@ face. Also try the M5 and M6 nuts in one Pomello M5 and Pomello M6, which you ne
 | Ganascia sinistra, Ganascia destra | any | outer face on the bed, so the V groove prints without supports |
 | Pomello M6, Pomello M5 | any | nut pocket up; press the nut in |
 | Pomelli ganasce (2) | any | the M5 knob again, one per jaw |
+| Attacco treppiede | any | block on the bed, nut slot on the side, no supports (optional, see below) |
 
 The dots sit exactly where the paper mat has them (ring Ø176, dots Ø9, holes Ø4.5) and the same way round seen from
 above, so the mat code reads the same. The white centre of a ring dot is a post of the platter; the dashed groove
@@ -63,6 +64,7 @@ marks where the piece must stand. Insert fit is `INSERT_CLEAR` (0.15 mm radial).
 - M5 × 35 bolt: tilt axis, clamped by the M5 knob
 - 2 × M5 × 20 hex bolt + nuts: the jaws (head in the jaw's slot, knob behind the plate)
 - 12 mm momentary panel button (optional, start/stop)
+- 1/4"-20 hex nut (7/16" across flats): the tripod adapter (optional)
 
 ## Wiring
 
@@ -84,6 +86,16 @@ The board sits pins down, 21 mm above the floor so the Dupont plugs fit under it
 stop, then the USB end presses down past two snap lips. Its USB-C ports face a 24 mm opening in the wall, open at the
 top and narrower than the board: plugging in pushes the board against the stop, pulling out pulls it against the wall
 beside the opening, and the lips keep it down. The platter's rim covers the opening.
+
+## On a tripod
+
+![Tripod adapter](treppiede.png)
+
+To shoot from further away or from another height, the cradle can leave the tower for any camera tripod. Print the
+`Attacco treppiede`: a block with a 1/4"-20 nut slid in from the side (the standard tripod screw goes in from below)
+and the same 8 mm tab and M5 hole as the top of the tower. Take the M5 knob off the tower, move the cradle with its
+jaws onto the adapter, put the bolt and knob back: the tilt works as on the tower, clear from 25° back to 60° forward
+with all three reference phones. The tilt axis is 35 mm above the block, so the tripod's own head is not needed.
 
 ## Firmware
 

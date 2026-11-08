@@ -87,6 +87,11 @@ HINGE_Z = 70.0              # tilt axis height above the table
 HINGE_BACK = 13.0           # tilt axis behind the cradle's back face (the M5 knob, Ø24, has to clear it)
 CAMERA_DISTANCE = 250.0     # default phone position: platter centre to the phone's face
 ARM_LEN = 240.0
+# Tripod adapter: the cradle moves from the tower onto it with the same M5 bolt and knob, and keeps its tilt.
+TRIPOD_NUT_AF = 11.4        # 1/4"-20 hex nut (7/16" across flats), slid in from the side
+TRIPOD_NUT_T = 5.9
+TRIPOD_AXIS_UP = 35.0       # tilt axis above the block: the cradle and the phone swing down to ~31 mm below it
+TRIPOD_SHOW = (-220.0, 0.0) # where it is shown, on the table beside the stand (x, offset from the tower in y)
 ARM_SLOT = (-355.0, -200.0)
 
 app = adsk.core.Application.get()
@@ -384,6 +389,23 @@ def plate_back():
     return PHONE_T_MAX / 2 + 1 + PLATE_T
 
 
+def tripod_adapter(root, axis):
+    """Block with a 1/4"-20 nut for the tripod screw under it, and the tower's tab and M5 hole at axis (x, y, z)."""
+    zt = -TRIPOD_AXIS_UP
+    zb = zt - 14
+    body = union(box(-20, 20, -14, 8, zb, zt), box(-4, 4, -10, 3, zt - 1, 0), cyl_pts((-4, 0, 0), (4, 0, 0), 20))
+    nz = zb + 2
+    cut(body, cyl_pts((-6, 0, 0), (6, 0, 0), 5.3),
+        cyl(0, -3, zb - 1, nz + TRIPOD_NUT_T + 6, 6.6),                       # the tripod screw
+        move(prisms(root, [hexagon(TRIPOD_NUT_AF)], 0, TRIPOD_NUT_T)[0], 0, -3, nz),
+        box(-TRIPOD_NUT_AF / 2, TRIPOD_NUT_AF / 2, -3, 9, nz, nz + TRIPOD_NUT_T))  # slot to slide the nut in
+    return move(body, *axis)
+
+
+def tripod_axis_shown():
+    return (TRIPOD_SHOW[0], post_y() + TRIPOD_SHOW[1], TRIPOD_AXIS_UP + 14)
+
+
 def cradle_origin():
     """World position of the cradle's local origin on the hinge: phone's middle plane, bottom of the jaws."""
     return (0, post_y() + plate_back() + HINGE_BACK, HINGE_Z - 12)
@@ -617,6 +639,7 @@ def run(_context):
         ("Ganascia sinistra", [jaw(root, -1, gap)]),
         ("Ganascia destra", [jaw(root, 1, gap)]),
         ("Pomelli ganasce", [jaw_knob(root, -1, gap), jaw_knob(root, 1, gap)]),
+        ("Attacco treppiede", [tripod_adapter(root, tripod_axis_shown())]),
     ]
     reference = [("RIF motore 28BYJ-48", [motor_dummy()]), ("RIF ESP32-S3-DevKitC-1", [esp_dummy()]),
                  (f"RIF {name}", [phone_dummy(w, t, h, bump)])]
