@@ -76,7 +76,8 @@ ULN_PILOT = 2.5             # M3 self-tapping screw into the standoff
 TOUCH_ANGLE, TOUCH_Z = 150.0, 18.0     # where (from +X, counter-clockwise) and the module's centre height
 TOUCH_WALL = 2.0            # the wall is thinned to this behind the module, with a flat face for its pad
 TTP223 = (11.0, 15.0, 1.6)  # module width, height (stood up, pins at the bottom), thickness
-TOUCH_LABEL = ("Start/Stop", 7.0, 1.0)   # engraved to the right of the ring (seen from outside): text, height, depth
+TOUCH_LABEL = (("Start",), 7.0, 1.0)   # engraved right of the ring (seen from outside): lines, height, depth
+LABEL_LINE_GAP = 2.0        # between the two lines
 LABEL_CLEAR = 0.1           # the printed letters are this much smaller all round than the engraving
 
 # --- ESP32-S3 devkit (2 x USB-C) ------------------------------------------------------------------------------
@@ -435,15 +436,25 @@ def text_prisms(root, text, height, depth):
     return out
 
 
+def label_lines(root, depth):
+    """The label's lines as flat prisms, one under the other, centred on y = 0, left ends at x = 0."""
+    lines, height, _ = TOUCH_LABEL
+    out = []
+    for i, line in enumerate(lines):
+        dy = ((len(lines) - 1) / 2 - i) * (height + LABEL_LINE_GAP)
+        out += [move(b, 0, dy, 0) for b in text_prisms(root, line, height, depth)]
+    return out
+
+
 def touch_label(root):
     """The label engraved in the outside of the wall, to the right of the touch ring, at an even depth on the curve."""
-    text, height, depth = TOUCH_LABEL
+    _, height, depth = TOUCH_LABEL
     r_out = BASE_D / 2
     a = math.radians(TOUCH_ANGLE)
     u = (math.cos(a), math.sin(a), 0)            # radial
     t = (-math.sin(a), math.cos(a), 0)           # tangential: to the right seen from outside
     out = []
-    for b in text_prisms(root, text, height, 30):
+    for b in label_lines(root, 30):
         # text x -> along the wall to the right, text y -> up, extrusion -> radially out through the wall
         frame(b, (u[0] * (r_out - 15) + t[0] * 9, u[1] * (r_out - 15) + t[1] * 9, TOUCH_Z), t, (0, 0, 1), u)
         shell = cut(cyl(0, 0, TOUCH_Z - 10, TOUCH_Z + 10, 2 * r_out + 2), cyl(0, 0, TOUCH_Z - 11, TOUCH_Z + 11, 2 * (r_out - depth)))
@@ -468,8 +479,7 @@ def offset_sides(root, temps, dist):
 
 def label_letters(root):
     """The engraving's letters, flat and LABEL_CLEAR smaller all round, to print in another colour and glue in."""
-    text, height, depth = TOUCH_LABEL
-    return offset_sides(root, text_prisms(root, text, height, depth), -LABEL_CLEAR)
+    return offset_sides(root, label_lines(root, TOUCH_LABEL[2]), -LABEL_CLEAR)
 
 
 def touch_dummy():
@@ -883,7 +893,7 @@ def run(_context):
         ("Pomello M5", [knob5]),
     ]
     printed.append(("Dado asse", [axle_nut(root)]))
-    printed.append(("Scritta Start/Stop", [move(b, TESTS_X, -190, 0) for b in label_letters(root)]))
+    printed.append(("Scritta Start", [move(b, TESTS_X, -190, 0) for b in label_letters(root)]))
     name, w, t, h, bump = PHONES[0]
     gap = jaw_gap(w, t)
     printed += [
